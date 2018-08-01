@@ -19,7 +19,7 @@ buildscript {
 }
 
 plugins {
-  val kotlinVersion = "1.2.51"
+  val kotlinVersion = "1.2.60"
   idea
   java
   id("org.jetbrains.kotlin.jvm") version kotlinVersion
@@ -49,7 +49,6 @@ repositories {
 }
 
 dependencies {
-
 
   compile("net.lab0.kotlin.more:morekotlin:0.1.4")
 
