@@ -6,6 +6,7 @@ import net.lab0.coding.game.xmasrush.Direction.RIGHT
 import net.lab0.coding.game.xmasrush.Direction.UP
 import net.lab0.coding.game.xmasrush.TurnType.MOVE
 import net.lab0.coding.game.xmasrush.TurnType.PUSH
+import java.util.Random
 import java.util.Scanner
 
 /**
@@ -36,77 +37,85 @@ Response time for the first turn ≤ 1s
 Response time per turn ≤ 50ms
  */
 
+object Dice : Random()
+
+fun <T> Array<T>.pickOne() = this[Dice.nextInt(this.size)]
+
 fun debug(s: String) = System.err.println(s)
+
+fun doPush() {
+  push(Dice.nextInt(7), Direction.values().pickOne())
+}
+
+fun doMove(board: Board, player: Player) {
+  val directions = board.getAvailableMoveDirections(player.row, player.col)
+  directions.filter {
+    board.canMove(player.row X player.col, player.toPosition().translatedPositionTo(it))
+  }
+}
 
 /**
  * Help the Christmas elves fetch presents in a magical labyrinth!
  **/
 fun main(args: Array<String>) {
-    val input = Scanner(System.`in`)
+  val input = Scanner(System.`in`)
 
-    // game loop
-    while (true) {
-        val turnType = if (input.nextInt() == 0) PUSH else MOVE
+  // game loop
+  while (true) {
+    val turnType = if (input.nextInt() == 0) PUSH else MOVE
 
-        val gridInput = (1..7).map {
-            Tile(input.nextLine())
-        }.joinToString("\n")
+    val gridInput = (1..7).map {
+      Tile(input.nextLine())
+    }.joinToString("\n")
 
-        val board = Board(gridInput)
+    val board = Board(gridInput)
 
-        val me = parsePlayer(input)
-        val foe = parsePlayer(input)
+    val me = parsePlayer(input)
+    val foe = parsePlayer(input)
 
-        val numItems = input.nextInt() // the total number of items available on board and on player tiles
-        for (i in 0 until numItems) {
-            val itemName = input.next()
-            val itemX = input.nextInt()
-            val itemY = input.nextInt()
-            val itemPlayerId = input.nextInt()
-            val item = Item(itemName, itemPlayerId)
+    val numItems = input.nextInt() // the total number of items available on board and on player tiles
+    for (i in 0 until numItems) {
+      val itemName = input.next()
+      val itemX = input.nextInt()
+      val itemY = input.nextInt()
+      val itemPlayerId = input.nextInt()
+      val item = Item(itemName, itemPlayerId)
 
-            when (itemX) {
-                -1 -> me.tile.item = item
-                -2 -> foe.tile.item = item
-                else -> board.grid[itemY][itemX].item = item
-            }
-        }
-
-        val numQuests = input.nextInt() // the total number of revealed quests for both players
-        val quests = (1..numQuests).map {
-            Quest(input.next(), input.nextInt())
-        }
-
-        // Write an action using println()
-
-        when (turnType) {
-            PUSH -> doPush()
-            MOVE -> doMove()
-        }
-
-        println("PUSH 3 RIGHT") // PUSH <id> <direction> | MOVE <direction> | PASS
+      when (itemX) {
+        -1 -> me.tile.item = item
+        -2 -> foe.tile.item = item
+        else -> board.grid[itemY][itemX].item = item
+      }
     }
-}
 
-fun doPush() {
+    val numQuests = input.nextInt() // the total number of revealed quests for both players
+    val quests = (1..numQuests).map {
+      Quest(input.next(), input.nextInt())
+    }
 
-}
+    // Write an action using println()
 
-fun doMove() {
+    when (turnType) {
+      PUSH -> doPush()
+      MOVE -> doMove(board, me)
+    }
+
+    println("PUSH 3 RIGHT") // PUSH <id> <direction> | MOVE <direction> | PASS
+  }
 }
 
 private fun parsePlayer(input: Scanner): Player {
-    return Player(
-        input.nextInt(),
-        input.nextInt(),
-        input.nextInt(),
-        Tile(input.next())
-    )
+  return Player(
+      input.nextInt(),
+      input.nextInt(),
+      input.nextInt(),
+      Tile(input.next())
+  )
 }
 
 enum class TurnType {
-    PUSH,
-    MOVE
+  PUSH,
+  MOVE
 }
 
 data class Tile(
@@ -116,88 +125,106 @@ data class Tile(
     val left: Boolean,
     var item: Item? = null
 ) {
-    constructor(tileString: String) : this(
-        tileString[0] == '1',
-        tileString[1] == '1',
-        tileString[2] == '1',
-        tileString[3] == '1'
-    )
+  companion object {
+    val plus = Tile(true, true, true, true)
+  }
+
+  constructor(tileString: String) : this(
+      tileString[0] == '1',
+      tileString[1] == '1',
+      tileString[2] == '1',
+      tileString[3] == '1'
+  )
 }
 
 data class Board(val grid: List<List<Tile>>) {
-    constructor(input: String) : this(
-        input.split('\n').map { line ->
-            line.split(' ').map {
-                Tile(it)
-            }
+  constructor(input: String) : this(
+      input.split('\n').map { line ->
+        line.split(' ').map {
+          Tile(it)
         }
-    )
+      }
+  )
 
-    fun push(
-        index: Int,
-        direction: Direction,
-        tile: Tile
-    ): Pair<Board, Tile> {
-        return when (direction) {
-            UP -> pushUp(index, tile)
-            DOWN -> pushDown(index, tile)
-            LEFT -> pushLeft(index, tile)
-            RIGHT -> pushRight(index, tile)
+  fun push(
+      index: Int,
+      direction: Direction,
+      tile: Tile
+  ): Pair<Board, Tile> {
+    return when (direction) {
+      UP -> pushUp(index, tile)
+      DOWN -> pushDown(index, tile)
+      LEFT -> pushLeft(index, tile)
+      RIGHT -> pushRight(index, tile)
+    }
+  }
+
+  private fun pushRight(rowIndex: Int, tile: Tile): Pair<Board, Tile> {
+    val size = this.grid.size
+    return Board(
+        (0 until size).map {
+          when (it) {
+            rowIndex -> (listOf(tile) + this.grid[it]).take(size)
+            else -> this.grid[it]
+          }
         }
-    }
+    ) to this.grid[rowIndex].last()
+  }
 
-    private fun pushRight(rowIndex: Int, tile:Tile): Pair<Board, Tile> {
-        val size = this.grid.size
-        return Board(
-            (0 until size).map {
-                when (it) {
-                    rowIndex -> (listOf(tile) + this.grid[it]).take(size)
-                    else -> this.grid[it]
-                }
+  private fun pushLeft(rowIndex: Int, tile: Tile): Pair<Board, Tile> {
+    val size = this.grid.size
+    return Board(
+        (0 until size).map {
+          when (it) {
+            rowIndex -> (this.grid[it] + tile).takeLast(size)
+            else -> this.grid[it]
+          }
+        }
+    ) to this.grid[rowIndex].first()
+  }
+
+  private fun pushDown(colIndex: Int, pushingTile: Tile): Pair<Board, Tile> {
+    val size = this.grid.first().size
+    return Board(
+        this.grid.mapIndexed { rowIndex, row ->
+          row.mapIndexed { idx, tile ->
+            when (idx) {
+              colIndex -> if (rowIndex == 0) pushingTile else this.grid[rowIndex - 1][idx]
+              else -> tile
             }
-        ) to this.grid[rowIndex].last()
-    }
+          }
+        }
+    ) to this.grid.last()[colIndex]
+  }
 
-    private fun pushLeft(rowIndex: Int, tile:Tile): Pair<Board, Tile> {
-        val size = this.grid.size
-        return Board(
-            (0 until size).map {
-                when (it) {
-                    rowIndex -> (this.grid[it] + tile).takeLast(size)
-                    else -> this.grid[it]
-                }
+  private fun pushUp(colIndex: Int, pushingTile: Tile): Pair<Board, Tile> {
+    val size = this.grid.first().size
+    return Board(
+        this.grid.mapIndexed { rowIndex, row ->
+          row.mapIndexed { idx, tile ->
+            when (idx) {
+              colIndex -> if (rowIndex == size - 1) pushingTile else this.grid[rowIndex + 1][idx]
+              else -> tile
             }
-        ) to this.grid[rowIndex].first()
-    }
+          }
+        }
+    ) to this.grid.first()[colIndex]
+  }
 
-    private fun pushDown(colIndex: Int, tile:Tile): Pair<Board, Tile> {
-        val size = this.grid.first().size
-        return Board(
-            this.grid.map { row ->
-                row.mapIndexed { idx, tile ->
-                    when (idx) {
-                        colIndex -> this.grid[(size + idx - 1) % size][idx]
-                        else -> tile
-                    }
-                }
-            }
-        ) to this.grid.last()[colIndex]
-    }
+  fun getAvailableMoveDirections(row: Int, col: Int): Set<Direction> {
+    val set = Direction.values().toMutableSet()
 
-    private fun pushUp(colIndex: Int, tile:Tile): Pair<Board, Tile> {
-        val size = this.grid.first().size
-        return Board(
-            this.grid.map { row ->
-                row.mapIndexed { idx, tile ->
-                    when (idx) {
-                        colIndex -> this.grid[(idx + 1) % size][idx]
-                        else -> tile
-                    }
-                }
-            }
-        ) to this.grid.first()[colIndex]
-    }
+    if (row == 0) set.remove(UP)
+    if (row == this.grid.lastIndex) set.remove(DOWN)
+    if (col == 0) set.remove(LEFT)
+    if (col == this.grid.first().lastIndex) set.remove(RIGHT)
 
+    return set
+  }
+
+  fun canMove(from: Position, to: Position): Boolean {
+    TODO("not implemented")
+  }
 
 }
 
@@ -206,11 +233,23 @@ data class Player(
      * the total number of quests for a player (hidden and revealed)
      */
     val numPlayerCards: Int, val x: Int, val y: Int, val tile: Tile
-)
+) {
+  fun toPosition() = Position(this.row, this.col)
 
-enum class PlayId {
-    ME,
-    FOE
+  val row
+    get() = y
+  val col
+    get() = x
+}
+
+enum class PlayerId {
+  ME,
+  FOE
+  //
+  ;
+
+  val id
+    get() = this.ordinal
 }
 
 data class Item(val name: String, val id: Int)
@@ -218,8 +257,30 @@ data class Item(val name: String, val id: Int)
 data class Quest(val questItemName: String, val questPlayerId: Int)
 
 enum class Direction {
-    UP,
-    RIGHT,
-    DOWN,
-    LEFT
+  UP,
+  RIGHT,
+  DOWN,
+  LEFT
 }
+
+fun push(index: Int, direction: Direction) =
+    println("PUSH $index $direction")
+
+fun move(vararg direction: Direction) =
+    println("MOVE ${direction.joinToString(" ") { it.toString() }}")
+
+fun pass() =
+    println("PASS")
+
+data class Position(val row: Int, val col: Int) {
+  fun translatedPositionTo(direction: Direction) =
+      when (direction) {
+        UP -> Position(this.row - 1, this.col)
+        DOWN -> Position(this.row + 1, this.col)
+        LEFT -> Position(this.row, this.col - 1)
+        RIGHT -> Position(this.row, this.col + 1)
+      }
+}
+
+infix fun Int.X(that: Int) =
+    Position(this, that)
