@@ -1,9 +1,13 @@
 package net.lab0.coding.game.xmasrush
 
-import net.lab0.coding.game.xmasrush.Direction.DOWN
-import net.lab0.coding.game.xmasrush.Direction.LEFT
-import net.lab0.coding.game.xmasrush.Direction.RIGHT
-import net.lab0.coding.game.xmasrush.Direction.UP
+import Board
+import Direction.DOWN
+import Direction.LEFT
+import Direction.RIGHT
+import Direction.UP
+import Position
+import Tile
+import X
 import org.assertj.core.api.Assertions.assertThat
 import org.funktionale.currying.curried
 import org.junit.jupiter.api.DynamicTest
@@ -160,8 +164,8 @@ internal class BoardTest {
   @TestFactory
   fun `cant move outside the grid`(): Iterable<DynamicTest> {
     val board = Board(
-        (0..1).map {
-          (0..1).map {
+        (0..2).map {
+          (0..2).map {
             Tile.plus
           }
         }
@@ -169,9 +173,9 @@ internal class BoardTest {
 
     val movements = listOf(
         Position(0, 0) to setOf(DOWN, RIGHT),
-        Position(1, 0) to setOf(UP, RIGHT),
-        Position(0, 1) to setOf(DOWN, LEFT),
-        Position(1, 1) to setOf(UP, LEFT)
+        Position(2, 0) to setOf(UP, RIGHT),
+        Position(0, 2) to setOf(DOWN, LEFT),
+        Position(2, 2) to setOf(UP, LEFT)
     )
 
     return movements.map {
@@ -180,7 +184,7 @@ internal class BoardTest {
       ) {
         assertThat(
             board.getAvailableMoveDirections(it.first.row, it.first.col)
-        ).isEqualTo(it.second)
+        ).containsExactlyInAnyOrder(*it.second.toTypedArray())
       }
     }
   }

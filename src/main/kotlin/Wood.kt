@@ -1,11 +1,9 @@
-package net.lab0.coding.game.xmasrush
-
-import net.lab0.coding.game.xmasrush.Direction.DOWN
-import net.lab0.coding.game.xmasrush.Direction.LEFT
-import net.lab0.coding.game.xmasrush.Direction.RIGHT
-import net.lab0.coding.game.xmasrush.Direction.UP
-import net.lab0.coding.game.xmasrush.TurnType.MOVE
-import net.lab0.coding.game.xmasrush.TurnType.PUSH
+import Direction.DOWN
+import Direction.LEFT
+import Direction.RIGHT
+import Direction.UP
+import TurnType.MOVE
+import TurnType.PUSH
 import java.util.Random
 import java.util.Scanner
 import kotlin.math.abs
@@ -13,13 +11,9 @@ import kotlin.math.abs
 /**
  *
 
-
 Note: The player's id is always 0 and the opponent's 1.
 Output for one PUSH game turn
 
-PUSH id direction where id is between 0 and 6, and direction can be UP, DOWN, LEFT or RIGHT.
-
-Example: PUSH 3 UP will push the third column upwards.
 Output for one MOVE game turn
 
 MOVE direction where direction can be UP, DOWN, LEFT or RIGHT.
@@ -38,23 +32,45 @@ Response time for the first turn ≤ 1s
 Response time per turn ≤ 50ms
  */
 
-object Dice : Random()
+object Dice : Random() {
+  fun <T> pickOne(possible: List<T>): T =
+      possible[this.nextInt(possible.size)]
+}
 
 fun <T> Array<T>.pickOne() = this[Dice.nextInt(this.size)]
 
+val DEBUG_PARSING = false
+val DEBUG_MOVE = true
+
 fun debug(s: String) = System.err.println(s)
+fun debugParsing(s: String) {
+  if (DEBUG_PARSING) debug(s)
+}
+
+fun debugMove(s: String) {
+  if (DEBUG_MOVE) debug(s)
+}
 
 fun doPush() {
+  debug("Push")
   push(Dice.nextInt(7), Direction.values().pickOne())
 }
 
 fun doMove(board: Board, player: Player) {
+  debug("Move")
   val directions = board.getAvailableMoveDirections(player.row, player.col)
-  directions.filter {
+
+  debugMove("Available directions: $directions")
+  val possible = directions.filter {
     val from = player.row X player.col
     val to = player.toPosition().translatedPositionTo(it)
-    board[from].moveUpTo(board[to])
+    board[from].moveTowards(it, board[to])
   }
+
+  debugMove("Possible directions: $possible")
+
+  if (possible.isEmpty()) pass()
+  else move(Dice.pickOne(possible))
 }
 
 /**
@@ -65,17 +81,25 @@ fun main(args: Array<String>) {
 
   // game loop
   while (true) {
+    debugParsing("Loop")
     val turnType = if (input.nextInt() == 0) PUSH else MOVE
 
-    val gridInput = (1..7).map {
-      Tile(input.nextLine())
-    }.joinToString("\n")
+    input.nextLine()
+    debugParsing("Board")
+    val gridInput = (1..7).joinToString("\n") {
+      val row = input.nextLine()
+      debugParsing(row)
+      row
+    }
 
+    debugParsing("Grid input string $gridInput")
     val board = Board(gridInput)
 
+    debugParsing("Players")
     val me = parsePlayer(input)
     val foe = parsePlayer(input)
 
+    debugParsing("Items")
     val numItems = input.nextInt() // the total number of items available on board and on player tiles
     for (i in 0 until numItems) {
       val itemName = input.next()
@@ -91,19 +115,18 @@ fun main(args: Array<String>) {
       }
     }
 
+    debugParsing("Quests")
     val numQuests = input.nextInt() // the total number of revealed quests for both players
     val quests = (1..numQuests).map {
-      Quest(input.next(), input.nextInt())
+      Quest(input.next(), PlayerId.from(input.nextInt()))
     }
 
     // Write an action using println()
-
+    debugParsing("Actions")
     when (turnType) {
       PUSH -> doPush()
       MOVE -> doMove(board, me)
     }
-
-    println("PUSH 3 RIGHT") // PUSH <id> <direction> | MOVE <direction> | PASS
   }
 }
 
@@ -188,7 +211,15 @@ data class Tile(
       tileString[3] == '1'
   )
 
-  fun moveUpTo(tile: Tile) =
+  fun moveTowards(direction: Direction, tile: Tile) =
+      when (direction) {
+        UP -> moveUpTowards(tile)
+        DOWN -> moveDownTo(tile)
+        LEFT -> moveLeftTo(tile)
+        RIGHT -> moveRightTo(tile)
+      }
+
+  fun moveUpTowards(tile: Tile) =
       this.up && tile.down
 
   fun moveDownTo(tile: Tile) =
@@ -204,7 +235,9 @@ data class Tile(
 data class Board(val grid: List<List<Tile>>) {
   constructor(input: String) : this(
       input.split('\n').map { line ->
+        debugParsing("Tile line $line")
         line.split(' ').map {
+          debugParsing("Tile $it")
           Tile(it)
         }
       }
@@ -321,11 +354,15 @@ enum class PlayerId {
 
   val id
     get() = this.ordinal
+
+  companion object {
+    fun from(i: Int) = PlayerId.values()[i]
+  }
 }
 
 data class Item(val name: String, val id: Int)
 
-data class Quest(val questItemName: String, val questPlayerId: Int)
+data class Quest(val questItemName: String, val questPlayerId: PlayerId)
 
 enum class Direction {
   UP,

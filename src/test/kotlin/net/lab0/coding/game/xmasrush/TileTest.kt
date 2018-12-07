@@ -1,5 +1,6 @@
 package net.lab0.coding.game.xmasrush
 
+import Tile
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DynamicTest
 import org.junit.jupiter.api.Test
@@ -48,10 +49,10 @@ internal class TileTest {
 
   @Test
   fun `test vertical movement`() {
-    assertThat(Tile.minus.moveUpTo(Tile.minus)).isFalse()
-    assertThat(Tile.minus.moveUpTo(Tile.pipe)).isFalse()
-    assertThat(Tile.pipe.moveUpTo(Tile.minus)).isFalse()
-    assertThat(Tile.pipe.moveUpTo(Tile.pipe)).isTrue()
+    assertThat(Tile.minus.moveUpTowards(Tile.minus)).isFalse()
+    assertThat(Tile.minus.moveUpTowards(Tile.pipe)).isFalse()
+    assertThat(Tile.pipe.moveUpTowards(Tile.minus)).isFalse()
+    assertThat(Tile.pipe.moveUpTowards(Tile.pipe)).isTrue()
 
 
     assertThat(Tile.minus.moveDownTo(Tile.minus)).isFalse()

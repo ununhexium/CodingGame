@@ -1,9 +1,10 @@
 package net.lab0.coding.game.xmasrush
 
-import net.lab0.coding.game.xmasrush.Direction.DOWN
-import net.lab0.coding.game.xmasrush.Direction.LEFT
-import net.lab0.coding.game.xmasrush.Direction.RIGHT
-import net.lab0.coding.game.xmasrush.Direction.UP
+import Direction.DOWN
+import Direction.LEFT
+import Direction.RIGHT
+import Direction.UP
+import X
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
