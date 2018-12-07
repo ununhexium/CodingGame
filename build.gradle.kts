@@ -55,6 +55,8 @@ dependencies {
   compile("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
   compile("org.jetbrains.kotlin:kotlin-reflect")
 
+  testImplementation("org.funktionale:funktionale-all:1.2")
+
   testImplementation("org.assertj:assertj-core:$assertJVersion")
   testImplementation("org.junit.jupiter:junit-jupiter-api:$junitJupiterVersion")
 

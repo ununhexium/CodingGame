@@ -91,7 +91,7 @@ class ThereIsNoSpoon2 {
         grid: Grid,
         startAt: Pair<Int, Int> = grid.firstNode()
     ): Boolean {
-
+      TODO("continue")
     }
 }
 
