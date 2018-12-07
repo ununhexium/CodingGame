@@ -8,6 +8,7 @@ import net.lab0.coding.game.xmasrush.TurnType.MOVE
 import net.lab0.coding.game.xmasrush.TurnType.PUSH
 import java.util.Random
 import java.util.Scanner
+import kotlin.math.abs
 
 /**
  *
@@ -50,7 +51,9 @@ fun doPush() {
 fun doMove(board: Board, player: Player) {
   val directions = board.getAvailableMoveDirections(player.row, player.col)
   directions.filter {
-    board.canMove(player.row X player.col, player.toPosition().translatedPositionTo(it))
+    val from = player.row X player.col
+    val to = player.toPosition().translatedPositionTo(it)
+    board[from].moveUpTo(board[to])
   }
 }
 
@@ -125,8 +128,57 @@ data class Tile(
     val left: Boolean,
     var item: Item? = null
 ) {
+
   companion object {
-    val plus = Tile(true, true, true, true)
+    /**
+     * Builds a new tile. Defaults to all closed.
+     */
+    class Builder(
+        var up: Boolean = false,
+        var down: Boolean = false,
+        var left: Boolean = false,
+        var right: Boolean = false
+    ) {
+
+      fun build() = Tile(up, right, down, left)
+
+      fun allOpen(): Builder {
+        open(UP)
+        open(DOWN)
+        open(LEFT)
+        open(RIGHT)
+        return this
+      }
+
+      fun open(vararg direction: Direction): Builder {
+        direction.forEach {
+          when (it) {
+            UP -> up = true
+            DOWN -> down = true
+            LEFT -> left = true
+            RIGHT -> right = true
+          }
+        }
+        return this
+      }
+
+      fun close(vararg direction: Direction): Builder {
+        direction.forEach {
+          when (it) {
+            UP -> up = false
+            DOWN -> down = false
+            LEFT -> left = false
+            RIGHT -> right = false
+          }
+        }
+
+        return this
+      }
+    }
+
+    val plus = Builder().allOpen().build()
+    val minus = Builder().open(LEFT, RIGHT).build()
+    val pipe = Builder().open(UP, DOWN).build()
   }
 
   constructor(tileString: String) : this(
@@ -135,6 +187,18 @@ data class Tile(
       tileString[2] == '1',
       tileString[3] == '1'
   )
+
+  fun moveUpTo(tile: Tile) =
+      this.up && tile.down
+
+  fun moveDownTo(tile: Tile) =
+      this.down && tile.up
+
+  fun moveRightTo(tile: Tile) =
+      this.right && tile.left
+
+  fun moveLeftTo(tile: Tile) =
+      this.left && tile.right
 }
 
 data class Board(val grid: List<List<Tile>>) {
@@ -223,9 +287,16 @@ data class Board(val grid: List<List<Tile>>) {
   }
 
   fun canMove(from: Position, to: Position): Boolean {
-    TODO("not implemented")
+    return false
   }
 
+  private fun moveByExactly1Tile(
+      from: Position,
+      to: Position
+  ) = (abs(from.row - to.row) + abs(from.col - to.col)) == 1
+
+  inline operator fun get(position: Position) =
+      this.grid[position.row][position.col]
 }
 
 data class Player(

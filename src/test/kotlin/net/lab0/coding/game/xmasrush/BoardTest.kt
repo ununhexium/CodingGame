@@ -185,8 +185,29 @@ internal class BoardTest {
     }
   }
 
-  @Test
-  fun `can move by 1 tile`() {
+  @TestFactory
+  fun `can move by 1 tile`(): Iterable<DynamicTest> {
+    val board = Board(
+        (0..1).map {
+          (0..1).map {
+            Tile.plus
+          }
+        }
+    )
 
+    return listOf(
+        DynamicTest.dynamicTest("to the left"){
+          board.canMove(0 X 0, 0 X 1)
+        },
+        DynamicTest.dynamicTest("to the right"){
+          board.canMove(0 X 1, 0 X 0)
+        },
+        DynamicTest.dynamicTest("up"){
+          board.canMove(1 X 0, 0 X 0)
+        },
+        DynamicTest.dynamicTest("down"){
+          board.canMove(0 X 0, 1 X 0)
+        }
+    )
   }
 }
