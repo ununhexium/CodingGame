@@ -226,7 +226,7 @@ internal class BoardTest {
       val selection = asciiToSelection(board, coordinates, code)
       println("Selection:")
       println(showSelection(coordinates, code))
-      val accessible: Set<TileWithPositionLike> = board.getAccessibleTiles(position)
+      val accessible: Set<TileWithPositionLike> = board.getAccessibleTiles(position).allElements().toSet()
       println("Accessible:")
       println(showAccessible(accessible))
       assertThat(accessible).containsExactlyInAnyOrderElementsOf(selection)

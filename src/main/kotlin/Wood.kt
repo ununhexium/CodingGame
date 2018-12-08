@@ -6,6 +6,7 @@ import TurnType.MOVE
 import TurnType.PUSH
 import java.util.Random
 import java.util.Scanner
+import kotlin.math.abs
 
 /**
  *
@@ -54,6 +55,9 @@ interface PositionLike {
         LEFT -> Position(this.row, this.col - 1)
         RIGHT -> Position(this.row, this.col + 1)
       }
+
+  fun distanceTo(other: PositionLike) =
+      abs(other.row - this.row) + abs(other.col - this.col)
 }
 
 interface TileWithPositionLike : TileLike, PositionLike {
@@ -77,7 +81,7 @@ object Strategies {
   object StochasticWalk : Strategy {
     override fun push(game: Game) {
       debug("Push")
-      push(Dice.nextInt(7), Direction.values().pickOne())
+      pushCommand(Dice.nextInt(7), Direction.values().pickOne())
     }
 
     override fun move(game: Game) {
@@ -88,8 +92,27 @@ object Strategies {
         debugMove("Possible directions: $possible")
 
         if (possible.isEmpty()) pass()
-        else move(Dice.pickOne(possible))
+        else moveCommand(Dice.pickOne(possible))
       }
+    }
+  }
+
+  /**
+   * Go as close as possible to the objective
+   */
+  object BestEffort : Strategy {
+    override fun push(game: Game) {
+      pushCommand(Dice.nextInt(7), Direction.values().pickOne())
+    }
+
+    override fun move(game: Game) {
+      val activeQuest = game.quests.first()
+      val path = game.board.moveAsCloseAsPossible(
+          game.me.toPosition(),
+          game.board.getTileWithQuestItem(activeQuest).asPosition()
+      )
+      debugPathfinding("Path: " + path.joinToString("->"))
+      moveCommand(path)
     }
   }
 }
@@ -381,31 +404,66 @@ data class Board(val grid: List<List<Tile>>) {
   operator fun get(position: PositionLike) =
       this.grid[position.row][position.col]
 
-  fun getAccessibleTiles(start: Position): Set<TileWithPositionLike> {
-    val accessible = mutableSetOf<TileWithPositionLike>()
-    val visited = mutableSetOf<Tile>()
-    val todo = mutableListOf<TileWithPositionLike>()
+  fun getAccessibleTiles(start: Position): Node<TileWithPositionLike> {
     val startTile = this[start]
-    todo.add(startTile.withPosition(start))
+    val s = startTile.withPosition(start)
+    val root = Node(s)
+    val todo = this.getPossibleMoves(s).filter {
+      it !in root
+    }.map {
+      root to it
+    }.toMutableList()
 
     while (todo.isNotEmpty()) {
-      if (todo.size > 49) {
-        throw IllegalStateException("To infinity and beyond!")
-      }
-      debugPathfinding("Path finding todo: ${todo.map(TileWithPositionLike::asTile)}")
-      val current = todo.removeAt(todo.lastIndex)
-      debugPathfinding("Now at " + current.position)
-      accessible.add(current)
-      visited.add(current.asTile() as Tile)
-      val possibleMoves = this.getPossibleMoves(current)
-      val surroundingTiles = possibleMoves.filter { tp ->
-        val tile = tp.asTile()
-        visited.none { it === tile }
-      }
-      todo.addAll(surroundingTiles)
+      val (parentNode, current) = todo.removeAt(0)
+      parentNode.children.add(Node(current))
+      todo.addAll(
+          this.getPossibleMoves(current).filter {
+            it !in root
+          }.map {
+            root to it
+          }.toMutableList()
+      )
     }
 
-    return accessible
+    return root
+  }
+
+  // TODO old school loop for performance
+  fun getTileWithQuestItem(activeQuest: Quest): TileWithPositionLike =
+      this.grid.mapIndexed { rowIdx, row ->
+        row.mapIndexedNotNull { colIdx, tile ->
+          if (tile.item?.name == activeQuest.questItemName) {
+            tile.withPosition(rowIdx X colIdx)
+          }
+          else null
+        }
+      }.flatten().first()
+
+  fun moveAsCloseAsPossible(
+      start: PositionLike,
+      target: PositionLike,
+      pathSoFar: List<Direction> = listOf()
+  ): List<Direction> {
+    val paths = mutableListOf<Pair<PositionLike, List<Direction>>>()
+    val visited = mutableListOf<PositionLike>()
+    val todo = mutableListOf(start to pathSoFar)
+
+    while (todo.isNotEmpty()) {
+      val (current, path) = todo.removeAt(0)
+      visited.add(current)
+      val directions = getPossibleDirections(current)
+      directions.filter {
+        current.translatedPositionTo(it) !in visited
+      }.forEach {
+        val next = current.translatedPositionTo(it)
+        paths.add(next to (path + it))
+      }
+    }
+
+    return paths.minBy {
+      it.first.distanceTo(target)
+    }!!.second
   }
 }
 
@@ -499,11 +557,14 @@ class TileBuilder(
   }
 }
 
-fun push(index: Int, direction: Direction) =
+fun pushCommand(index: Int, direction: Direction) =
     println("PUSH $index $direction")
 
-fun move(vararg direction: Direction) =
+fun moveCommand(vararg direction: Direction) =
     println("MOVE ${direction.joinToString(" ") { it.toString() }}")
+
+fun moveCommand(directions: List<Direction>) =
+    println("MOVE ${directions.joinToString(" ") { it.toString() }}")
 
 fun pass() =
     println("PASS")
@@ -542,7 +603,23 @@ fun justCurious() {
   debug("CPU count: " + Runtime.getRuntime().availableProcessors())
 }
 
-data class Node<T>(val t: T)
-    where T : TileWithPositionLike {
+data class Node<T>(val value: T) {
   val children = mutableListOf<Node<T>>()
+  fun size(): Int {
+    return 1 + children.map {
+      it.size()
+    }.sum()
+  }
+
+  fun allElements(): List<T> {
+    return listOf(this.value) + this.children.flatMap { it.allElements() }
+  }
+}
+
+operator fun <T> Node<T>.contains(element: T): Boolean {
+  return when {
+    this.value == element -> true
+    children.isNotEmpty() -> this.children.any { it.contains(element) }
+    else -> false
+  }
 }
