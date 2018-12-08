@@ -6,19 +6,9 @@ import TurnType.MOVE
 import TurnType.PUSH
 import java.util.Random
 import java.util.Scanner
-import kotlin.math.abs
 
 /**
  *
-
-Note: The player's id is always 0 and the opponent's 1.
-Output for one PUSH game turn
-
-Output for one MOVE game turn
-
-MOVE direction where direction can be UP, DOWN, LEFT or RIGHT.
-PASS to skip moving this turn.
-
 A MOVE can contain up to 20 directions, each direction separated by a space  .
 Example: MOVE LEFT UP RIGHT will make the player move left, then up, then right.
 Constraints
@@ -32,103 +22,157 @@ Response time for the first turn ≤ 1s
 Response time per turn ≤ 50ms
  */
 
-object Dice : Random() {
-  fun <T> pickOne(possible: List<T>): T =
-      possible[this.nextInt(possible.size)]
-}
-
-fun <T> Array<T>.pickOne() = this[Dice.nextInt(this.size)]
 
 val DEBUG_PARSING = false
 val DEBUG_MOVE = true
+val DEBUG_PATHFINDING = true
 
-fun debug(s: String) = System.err.println(s)
-fun debugParsing(s: String) {
-  if (DEBUG_PARSING) debug(s)
+interface Strategy {
+  fun push(game: Game)
+  fun move(game: Game)
 }
 
-fun debugMove(s: String) {
-  if (DEBUG_MOVE) debug(s)
+interface TileLike {
+  fun withPosition(position: PositionLike): TileWithPositionLike =
+      if (this is TileWithPosition) this else TileWithPosition(this, position)
+
+  val up: Boolean
+  val right: Boolean
+  val down: Boolean
+  val left: Boolean
+  var item: Item?
 }
 
-fun doPush() {
-  debug("Push")
-  push(Dice.nextInt(7), Direction.values().pickOne())
+interface PositionLike {
+  val row: Int
+  val col: Int
+
+  fun translatedPositionTo(direction: Direction): PositionLike =
+      when (direction) {
+        UP -> Position(this.row - 1, this.col)
+        DOWN -> Position(this.row + 1, this.col)
+        LEFT -> Position(this.row, this.col - 1)
+        RIGHT -> Position(this.row, this.col + 1)
+      }
 }
 
-fun doMove(board: Board, player: Player) {
-  debug("Move")
-  val directions = board.getAvailableMoveDirections(player.row, player.col)
+interface TileWithPositionLike : TileLike, PositionLike {
+  val tile: TileLike
+  val position: PositionLike
 
-  debugMove("Available directions: $directions")
-  val possible = directions.filter {
-    val from = player.row X player.col
-    val to = player.toPosition().translatedPositionTo(it)
-    board[from].moveTowards(it, board[to])
+  fun samePositionAs(other: PositionLike) =
+      this.row == other.row && this.col == other.col
+
+  fun asPosition(): PositionLike = this.position
+
+  fun asTile(): TileLike = this.tile
+}
+
+object Strategies {
+  var current = StochasticWalk
+
+  /**
+   * With the approbation of the Ministry of Silly Walks.
+   */
+  object StochasticWalk : Strategy {
+    override fun push(game: Game) {
+      debug("Push")
+      push(Dice.nextInt(7), Direction.values().pickOne())
+    }
+
+    override fun move(game: Game) {
+      with(game) {
+        debug("Move")
+        val possible = board.getPossibleDirections(me.toPosition())
+
+        debugMove("Possible directions: $possible")
+
+        if (possible.isEmpty()) pass()
+        else move(Dice.pickOne(possible))
+      }
+    }
   }
-
-  debugMove("Possible directions: $possible")
-
-  if (possible.isEmpty()) pass()
-  else move(Dice.pickOne(possible))
 }
+
 
 /**
  * Help the Christmas elves fetch presents in a magical labyrinth!
  **/
 fun main(args: Array<String>) {
+  justCurious()
+
   val input = Scanner(System.`in`)
 
   // game loop
   while (true) {
-    debugParsing("Loop")
-    val turnType = if (input.nextInt() == 0) PUSH else MOVE
+    val game = parseGame(input)
 
-    input.nextLine()
-    debugParsing("Board")
-    val gridInput = (1..7).joinToString("\n") {
-      val row = input.nextLine()
-      debugParsing(row)
-      row
-    }
-
-    debugParsing("Grid input string $gridInput")
-    val board = Board(gridInput)
-
-    debugParsing("Players")
-    val me = parsePlayer(input)
-    val foe = parsePlayer(input)
-
-    debugParsing("Items")
-    val numItems = input.nextInt() // the total number of items available on board and on player tiles
-    for (i in 0 until numItems) {
-      val itemName = input.next()
-      val itemX = input.nextInt()
-      val itemY = input.nextInt()
-      val itemPlayerId = input.nextInt()
-      val item = Item(itemName, itemPlayerId)
-
-      when (itemX) {
-        -1 -> me.tile.item = item
-        -2 -> foe.tile.item = item
-        else -> board.grid[itemY][itemX].item = item
+    /*
+     * Each game turn alternates between a PUSH turn and a MOVE turn.
+     * The first turn is always a PUSH turn.
+     */
+    debug("Actions")
+    with(Strategies.current) {
+      when (game.turnType) {
+        PUSH -> push(game)
+        MOVE -> move(game)
       }
-    }
-
-    debugParsing("Quests")
-    val numQuests = input.nextInt() // the total number of revealed quests for both players
-    val quests = (1..numQuests).map {
-      Quest(input.next(), PlayerId.from(input.nextInt()))
-    }
-
-    // Write an action using println()
-    debugParsing("Actions")
-    when (turnType) {
-      PUSH -> doPush()
-      MOVE -> doMove(board, me)
     }
   }
 }
+
+private fun parseGame(input: Scanner): Game {
+  debugParsing("Loop")
+  val turnType = if (input.nextInt() == 0) PUSH else MOVE
+
+  input.nextLine()
+  debugParsing("Board")
+  val gridInput = (1..7).joinToString("\n") {
+    val row = input.nextLine()
+    debugParsing(row)
+    row
+  }
+
+  debugParsing("Grid input string $gridInput")
+  val board = Board(gridInput)
+
+  debugParsing("Players")
+  val me = parsePlayer(input)
+  val foe = parsePlayer(input)
+
+  debugParsing("Items")
+  val numItems = input.nextInt() // the total number of items available on board and on player tiles
+  for (i in 0 until numItems) {
+    val itemName = input.next()
+    val itemX = input.nextInt()
+    val itemY = input.nextInt()
+    val itemPlayerId = input.nextInt()
+    val item = Item(itemName, itemPlayerId)
+
+    when (itemX) {
+      -1 -> me.tile.item = item
+      -2 -> foe.tile.item = item
+      else -> board.grid[itemY][itemX].item = item
+    }
+  }
+
+  debugParsing("Quests")
+  val numQuests = input.nextInt() // the total number of revealed quests for both players
+  val quests = (1..numQuests).map {
+    Quest(input.next(), PlayerId.from(input.nextInt()))
+  }
+
+  val game = Game(turnType, board, me, foe, quests)
+  return game
+}
+
+data class Game(
+    val turnType: TurnType,
+    val board: Board,
+    val me: Player,
+    val foe: Player,
+    val quests: List<Quest>
+)
 
 private fun parsePlayer(input: Scanner): Player {
   return Player(
@@ -145,63 +189,24 @@ enum class TurnType {
 }
 
 data class Tile(
-    val up: Boolean,
-    val right: Boolean,
-    val down: Boolean,
-    val left: Boolean,
-    var item: Item? = null
-) {
-
-  companion object {
-    /**
-     * Builds a new tile. Defaults to all closed.
-     */
-    class Builder(
-        var up: Boolean = false,
-        var down: Boolean = false,
-        var left: Boolean = false,
-        var right: Boolean = false
-    ) {
-
-      fun build() = Tile(up, right, down, left)
-
-      fun allOpen(): Builder {
-        open(UP)
-        open(DOWN)
-        open(LEFT)
-        open(RIGHT)
-        return this
-      }
-
-      fun open(vararg direction: Direction): Builder {
-        direction.forEach {
-          when (it) {
-            UP -> up = true
-            DOWN -> down = true
-            LEFT -> left = true
-            RIGHT -> right = true
-          }
-        }
-        return this
-      }
-
-      fun close(vararg direction: Direction): Builder {
-        direction.forEach {
-          when (it) {
-            UP -> up = false
-            DOWN -> down = false
-            LEFT -> left = false
-            RIGHT -> right = false
-          }
-        }
-
-        return this
-      }
+    override val up: Boolean,
+    override val right: Boolean,
+    override val down: Boolean,
+    override val left: Boolean
+) : TileLike {
+  /**
+   * Some tiles have items on them.
+   */
+  override var item: Item? = null
+    set(that: Item?) {
+      if (item == null) field = that
+      else throw IllegalStateException("Wait wait wait, what are you doing there !? >_<'")
     }
 
-    val plus = Builder().allOpen().build()
-    val minus = Builder().open(LEFT, RIGHT).build()
-    val pipe = Builder().open(UP, DOWN).build()
+  companion object {
+    val plus = TileBuilder().openAll().build()
+    val minus = TileBuilder().open(LEFT, RIGHT).build()
+    val pipe = TileBuilder().open(UP, DOWN).build()
   }
 
   constructor(tileString: String) : this(
@@ -211,7 +216,7 @@ data class Tile(
       tileString[3] == '1'
   )
 
-  fun moveTowards(direction: Direction, tile: Tile) =
+  fun canMoveTowards(direction: Direction, tile: Tile) =
       when (direction) {
         UP -> moveUpTowards(tile)
         DOWN -> moveDownTo(tile)
@@ -230,8 +235,18 @@ data class Tile(
 
   fun moveLeftTo(tile: Tile) =
       this.left && tile.right
+
+  fun cloned(): Tile =
+      Tile(this.up, this.right, this.down, this.left)
 }
 
+data class TileWithPosition(override val tile: TileLike, override val position: PositionLike) :
+    TileWithPositionLike, TileLike by tile, PositionLike by position
+
+/**
+ * The board contains square tiles with paths on them.
+ * A path can lead to one of the four directions (UP, RIGHT, DOWN and LEFT).
+ */
 data class Board(val grid: List<List<Tile>>) {
   constructor(input: String) : this(
       input.split('\n').map { line ->
@@ -243,6 +258,20 @@ data class Board(val grid: List<List<Tile>>) {
       }
   )
 
+  /**
+   * Each player can choose to push any row or column on the board.
+   * Rows can only be pushed horizontally (LEFT or RIGHT),
+   * while columns can only be pushed vertically (UP or DOWN).
+   *
+   * If both players push the same row or column, no matter the direction, nothing happens.
+   *
+   * If push commands intersect (one is horizontal and the other one vertical),
+   * the row is pushed first, followed by the column.
+   * Otherwise, they get pushed simultaneously.
+   * => Yeah, well, otherwise it doesn't matter anyway -_-
+   *
+   * TODO If a player is on a tile which gets pushed out of the map, the player is wrapped on the other end of the line.
+   */
   fun push(
       index: Int,
       direction: Direction,
@@ -308,7 +337,13 @@ data class Board(val grid: List<List<Tile>>) {
     ) to this.grid.first()[colIndex]
   }
 
-  fun getAvailableMoveDirections(row: Int, col: Int): Set<Direction> {
+  fun getAvailableSpaceDirections(position: PositionLike) =
+      getAvailableSpaceDirections(position.row, position.col)
+
+  /**
+   * What is in principle available, given the board and only '+' tiles
+   */
+  fun getAvailableSpaceDirections(row: Int, col: Int): Set<Direction> {
     val set = Direction.values().toMutableSet()
 
     if (row == 0) set.remove(UP)
@@ -319,17 +354,59 @@ data class Board(val grid: List<List<Tile>>) {
     return set
   }
 
-  fun canMove(from: Position, to: Position): Boolean {
-    return false
+  /**
+   * Where it's possible to move, given the tiles arround the given position
+   */
+  fun getPossibleMoves(from: PositionLike): List<TileWithPositionLike> {
+    val fromTile = this[from]
+    return this.getAvailableSpaceDirections(from).mapNotNull {
+      val to = from.translatedPositionTo(it)
+      val targetTile = this[to]
+      if (fromTile.canMoveTowards(it, targetTile)) targetTile.withPosition(to) else null
+    }
   }
 
-  private fun moveByExactly1Tile(
-      from: Position,
-      to: Position
-  ) = (abs(from.row - to.row) + abs(from.col - to.col)) == 1
+  /**
+   * Where it's possible to move, given the tiles arround the given position
+   */
+  fun getPossibleDirections(from: PositionLike): List<Direction> {
+    val fromTile = this[from]
+    return this.getAvailableSpaceDirections(from).filter {
+      val to = from.translatedPositionTo(it)
+      val targetTile = this[to]
+      fromTile.canMoveTowards(it, targetTile)
+    }
+  }
 
-  inline operator fun get(position: Position) =
+  operator fun get(position: PositionLike) =
       this.grid[position.row][position.col]
+
+  fun getAccessibleTiles(start: Position): Set<TileWithPositionLike> {
+    val accessible = mutableSetOf<TileWithPositionLike>()
+    val visited = mutableSetOf<Tile>()
+    val todo = mutableListOf<TileWithPositionLike>()
+    val startTile = this[start]
+    todo.add(startTile.withPosition(start))
+
+    while (todo.isNotEmpty()) {
+      if (todo.size > 49) {
+        throw IllegalStateException("To infinity and beyond!")
+      }
+      debugPathfinding("Path finding todo: ${todo.map(TileWithPositionLike::asTile)}")
+      val current = todo.removeAt(todo.lastIndex)
+      debugPathfinding("Now at " + current.position)
+      accessible.add(current)
+      visited.add(current.asTile() as Tile)
+      val possibleMoves = this.getPossibleMoves(current)
+      val surroundingTiles = possibleMoves.filter { tp ->
+        val tile = tp.asTile()
+        visited.none { it === tile }
+      }
+      todo.addAll(surroundingTiles)
+    }
+
+    return accessible
+  }
 }
 
 data class Player(
@@ -362,6 +439,11 @@ enum class PlayerId {
 
 data class Item(val name: String, val id: Int)
 
+/**
+ *      Each quest corresponds to an item on the board.
+ *      To complete a quest, a player must move to the tile containing the corresponding item.
+ *      The quest must be revealed to be able to complete it.
+ */
 data class Quest(val questItemName: String, val questPlayerId: PlayerId)
 
 enum class Direction {
@@ -369,6 +451,52 @@ enum class Direction {
   RIGHT,
   DOWN,
   LEFT
+}
+
+/**
+ * Builds a new tile. Defaults to all closed.
+ */
+class TileBuilder(
+    var up: Boolean = false,
+    var down: Boolean = false,
+    var left: Boolean = false,
+    var right: Boolean = false
+) {
+
+  fun build() = Tile(up, right, down, left)
+
+  fun openAll(): TileBuilder {
+    open(UP)
+    open(DOWN)
+    open(LEFT)
+    open(RIGHT)
+    return this
+  }
+
+  fun open(vararg direction: Direction): TileBuilder {
+    direction.forEach {
+      when (it) {
+        UP -> up = true
+        DOWN -> down = true
+        LEFT -> left = true
+        RIGHT -> right = true
+      }
+    }
+    return this
+  }
+
+  fun close(vararg direction: Direction): TileBuilder {
+    direction.forEach {
+      when (it) {
+        UP -> up = false
+        DOWN -> down = false
+        LEFT -> left = false
+        RIGHT -> right = false
+      }
+    }
+
+    return this
+  }
 }
 
 fun push(index: Int, direction: Direction) =
@@ -380,15 +508,41 @@ fun move(vararg direction: Direction) =
 fun pass() =
     println("PASS")
 
-data class Position(val row: Int, val col: Int) {
-  fun translatedPositionTo(direction: Direction) =
-      when (direction) {
-        UP -> Position(this.row - 1, this.col)
-        DOWN -> Position(this.row + 1, this.col)
-        LEFT -> Position(this.row, this.col - 1)
-        RIGHT -> Position(this.row, this.col + 1)
-      }
+data class Position(override val row: Int, override val col: Int) : PositionLike {
+
 }
 
 infix fun Int.X(that: Int) =
     Position(this, that)
+
+object Dice : Random() {
+  fun <T> pickOne(possible: List<T>): T =
+      possible[this.nextInt(possible.size)]
+}
+
+fun <T> Array<T>.pickOne() = this[Dice.nextInt(this.size)]
+fun <T> List<T>.pickOne() = this[Dice.nextInt(this.size)]
+
+fun debug(s: String) = System.err.println(s)
+fun debugPathfinding(s: String) {
+  if (DEBUG_PATHFINDING) {
+    debug(s)
+  }
+}
+
+fun debugParsing(s: String) {
+  if (DEBUG_PARSING) debug(s)
+}
+
+fun debugMove(s: String) {
+  if (DEBUG_MOVE) debug(s)
+}
+
+fun justCurious() {
+  debug("CPU count: " + Runtime.getRuntime().availableProcessors())
+}
+
+data class Node<T>(val t: T)
+    where T : TileWithPositionLike {
+  val children = mutableListOf<Node<T>>()
+}

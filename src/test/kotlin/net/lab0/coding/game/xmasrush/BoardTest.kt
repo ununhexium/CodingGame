@@ -7,10 +7,13 @@ import Direction.RIGHT
 import Direction.UP
 import Position
 import Tile
+import TileWithPositionLike
 import X
+import net.lab0.coding.game.xmasrush.Helpers.asciiToSelection
 import org.assertj.core.api.Assertions.assertThat
 import org.funktionale.currying.curried
 import org.junit.jupiter.api.DynamicTest
+import org.junit.jupiter.api.DynamicTest.dynamicTest
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestFactory
 
@@ -27,6 +30,8 @@ internal class BoardTest {
     }
 
     val pushTile = Tile(false, false, false, false)
+
+    val xMark = 'X'
   }
 
   @Test
@@ -45,10 +50,10 @@ internal class BoardTest {
     val (new, tile) = old.push(0, RIGHT, pushTile)
 
     return (1..3).map {
-      DynamicTest.dynamicTest("Row $it doesn't move") {
+      dynamicTest("Row $it doesn't move") {
         assertThat(new.grid[it]).isEqualTo(old.grid[it])
       }
-    } + DynamicTest.dynamicTest("Row 0 shifted to the right") {
+    } + dynamicTest("Row 0 shifted to the right") {
       // E -> A B C D
       val oldRow = old.grid[0]
       // E A B C -> D
@@ -69,10 +74,10 @@ internal class BoardTest {
     val (new, tile) = old.push(0, LEFT, pushTile)
 
     return (1..3).map {
-      DynamicTest.dynamicTest("Row $it doesn't move") {
+      dynamicTest("Row $it doesn't move") {
         assertThat(new.grid[it]).isEqualTo(old.grid[it])
       }
-    } + DynamicTest.dynamicTest("Row 0 shifted left") {
+    } + dynamicTest("Row 0 shifted left") {
       // A B C D <- E
       val oldRow = old.grid[0]
       // A <- B C D E
@@ -101,10 +106,10 @@ internal class BoardTest {
     val (new, tile) = old.push(0, UP, pushTile)
 
     return (1..3).map {
-      DynamicTest.dynamicTest("Column $it doesn't move") {
+      dynamicTest("Column $it doesn't move") {
         assertThat(asCol(new)(it)).isEqualTo(asCol(old)(it))
       }
-    } + DynamicTest.dynamicTest("Column 0 shifted up") {
+    } + dynamicTest("Column 0 shifted up") {
       /*
        * ```
        *   A
@@ -133,10 +138,10 @@ internal class BoardTest {
     val (new, tile) = old.push(0, DOWN, pushTile)
 
     return (1..3).map {
-      DynamicTest.dynamicTest("Column $it doesn't move") {
+      dynamicTest("Column $it doesn't move") {
         assertThat(asCol(new)(it)).isEqualTo(asCol(old)(it))
       }
-    } + DynamicTest.dynamicTest("Column 0 shifted down") {
+    } + dynamicTest("Column 0 shifted down") {
       /*
        * ```
        * E
@@ -179,39 +184,103 @@ internal class BoardTest {
     )
 
     return movements.map {
-      DynamicTest.dynamicTest(
+      dynamicTest(
           "At [${it.first.row};${it.first.col}] can go to ${it.second.joinToString()}"
       ) {
         assertThat(
-            board.getAvailableMoveDirections(it.first.row, it.first.col)
+            board.getAvailableSpaceDirections(it.first.row, it.first.col)
         ).containsExactlyInAnyOrder(*it.second.toTypedArray())
       }
     }
   }
 
   @TestFactory
-  fun `can move by 1 tile`(): Iterable<DynamicTest> {
-    val board = Board(
-        (0..1).map {
-          (0..1).map {
-            Tile.plus
-          }
-        }
-    )
+  fun `can list accessible tiles - generated grid`(): List<DynamicTest> {
+    // ╵ 	╶ 	└ 	╷ 	│ 	┌ 	├ 	╴ 	┘ 	─ 	┴ 	┐ 	┤ 	┬ 	┼
+
+    val input = """
+      > ┼┼.┴│.┐
+      > ┤│.┘┼┬.
+      > └│┬├┘│├
+      > ┘┐┼┬└└├
+      > ┤┘└┐┘┼┴
+      > ┐┤─┬┌┐┴
+      > ├┬└┤└┘└
+    """.trimMargin("> ")
+    val board = Board(Helpers.asciiToTiles(input))
+
+    println("Grid:")
+    println(input)
+
+    val coordinates = """
+      |11  3 2
+      |11  33
+      |11 333
+      |     3
+      |
+      |  5544
+      |  5544
+    """.trimMargin()
+
+    val tester = { code: Char, position: Position ->
+      val selection = asciiToSelection(board, coordinates, code)
+      println("Selection:")
+      println(showSelection(coordinates, code))
+      val accessible: Set<TileWithPositionLike> = board.getAccessibleTiles(position)
+      println("Accessible:")
+      println(showAccessible(accessible))
+      assertThat(accessible).containsExactlyInAnyOrderElementsOf(selection)
+    }
 
     return listOf(
-        DynamicTest.dynamicTest("to the left"){
-          board.canMove(0 X 0, 0 X 1)
+        dynamicTest("Selection 1") {
+          tester('1', 0 X 0)
         },
-        DynamicTest.dynamicTest("to the right"){
-          board.canMove(0 X 1, 0 X 0)
+        dynamicTest("Selection 2") {
+          tester('2', 0 X 6)
         },
-        DynamicTest.dynamicTest("up"){
-          board.canMove(1 X 0, 0 X 0)
+        dynamicTest("Selection 3") {
+          tester('3', 0 X 4)
         },
-        DynamicTest.dynamicTest("down"){
-          board.canMove(0 X 0, 1 X 0)
+        dynamicTest("Selection 4") {
+          tester('4', 5 X 4)
+        },
+        dynamicTest("Selection 5") {
+          tester('5', 5 X 3)
         }
     )
+  }
+
+  private fun showSelection(coordinates: String, code: Char, size: Int = 7) =
+      addIndexes(
+          coordinates.split("\n").map { row ->
+            row.toList().map {
+              if (it == code) xMark else ' '
+            }.joinToString("")
+          }.joinToString("\n") {
+            it.padEnd(size, ' ')
+          }
+      )
+
+  private fun showAccessible(accessible: Set<TileWithPositionLike>, size: Int = 7) =
+      addIndexes(
+          (0 until size).toList().joinToString("\n") { row ->
+            (0 until size).toList().joinToString("") { col ->
+              val accessibleHere = accessible.any { it.samePositionAs(row X col) }
+              if (accessibleHere) xMark.toString() else " "
+            }
+          }
+      )
+
+  private fun addIndexes(rectangle: String): String {
+    val rows = rectangle.split("\n")
+    val size = rows[0].length
+    val header = (" " + (0 until size).joinToString("") { it.toString() })
+
+    val prefixed = rows.mapIndexed { idx, row ->
+      idx.toString() + row
+    }.joinToString("\n")
+
+    return header + "\n" + prefixed
   }
 }
