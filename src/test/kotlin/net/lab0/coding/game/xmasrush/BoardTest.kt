@@ -5,12 +5,17 @@ import Direction.DOWN
 import Direction.LEFT
 import Direction.RIGHT
 import Direction.UP
+import Item
+import PlayerId.ME
 import Position
+import PositionLike
+import Quest
 import Tile
 import TileWithPositionLike
 import X
-import net.lab0.coding.game.xmasrush.Helpers.asciiToSelection
+import net.lab0.coding.game.xmasrush.GameTest.GameBuilder
 import net.lab0.coding.game.xmasrush.Helpers.asciiGridToTiles
+import net.lab0.coding.game.xmasrush.Helpers.asciiToSelection
 import org.assertj.core.api.Assertions.assertThat
 import org.funktionale.currying.curried
 import org.junit.jupiter.api.DynamicTest
@@ -195,7 +200,7 @@ internal class BoardTest {
     }
   }
 
-  val tester = { input:String, coordinates:String, code: Char, position: Position ->
+  val tester = { input: String, coordinates: String, code: Char, position: Position ->
     val board = Board(Helpers.asciiGridToTiles(input))
     val selection = asciiToSelection(board, coordinates, code)
     println("Selection:")
@@ -254,7 +259,7 @@ internal class BoardTest {
   }
 
   @Test
-  fun `check reachability 1`(){
+  fun `check reachability 1`() {
     val grid = """
       >┼┼.┴│.┐
       >┤│.┘┼┬.
@@ -349,5 +354,33 @@ internal class BoardTest {
     }
 
     return sizeTest + positionTests
+  }
+
+  @Test
+  fun `can move as close as possible to an item`() {
+    val grid = """
+      >┼..┴│..
+      >┤..┘┼┬.
+      >│.┬├┘│.
+      >│..┬└└.
+      >┼───┘..
+      >│.....┐
+      >┴─────┴
+    """.trimMargin(">")
+
+    val item = Item("A", ME)
+    val position = 4 X 6
+
+    val game = GameBuilder()
+        .withGrid(grid)
+        .withMyPosition(0 X 0)
+        .addItem(item, position)
+        .addQuest(Quest(item.name, ME))
+        .build()
+
+    val path: List<PositionLike> = game.board.moveAsCloseAsPossible(game.me, position)
+    assertThat(path.size).isLessThanOrEqualTo(20)
+    assertThat(path.last().row).isEqualTo(5)
+    assertThat(path.last().col).isEqualTo(6)
   }
 }

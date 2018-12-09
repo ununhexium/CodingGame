@@ -34,6 +34,8 @@ val DEBUG_PARSING = false
 val DEBUG_MOVE = true
 val DEBUG_PATHFINDING = true
 
+val MAX_PATH_SIZE = 20
+
 interface Strategy {
   fun push(game: Game)
   fun move(game: Game)
@@ -66,8 +68,8 @@ interface PositionLike {
       abs(other.row - this.row) + abs(other.col - this.col)
 
   /**
-   * Relative postion starting from this, going to other.
-   * The gap may onbly be one tile.
+   * Relative position starting from this, going to other.
+   * The gap may only be one tile.
    */
   fun directionTo(other: PositionLike): Direction {
     fun thrower(): Nothing {
@@ -92,6 +94,8 @@ interface PositionLike {
       else -> thrower()
     }
   }
+
+  fun positionOnly(): PositionLike
 }
 
 interface TileWithPositionLike : TileLike, PositionLike {
@@ -136,12 +140,21 @@ object Strategies {
    */
   object BestEffort : Strategy {
     override fun push(game: Game) {
-      // TODO: handle multiple targets
       // if can go to any quest item
       val accessibleItems = game.getAccessibleItems(ME)
       if (accessibleItems.isNotEmpty()) {
+        val path = game.shortestPath(ME, accessibleItems.first())
+        val pushes = game.pushNotOnPath(path)
+        if (pushes.isEmpty()) {
+          // can't push without disturbing target path. Go for random move.
+          // TODO: find non disturbing pushes
+          pushCommand(Dice.nextInt(7), Direction.values().pickOne())
+        }
+        else {
+          pushCommand(pushes.first())
+        }
         // find a way to push stuff so it doesn't disturb the path
-//        game.pushNotOnPathTo(accessibleItems.first())
+        // game.pushNotOnPathTo(accessibleItems.first())
       }
       pushCommand(Dice.nextInt(7), Direction.values().pickOne())
     }
@@ -149,14 +162,18 @@ object Strategies {
     override fun move(game: Game) {
       val activeQuest = game.questBook.quests.first()
       val target = game.board.getTileWithQuestItem(activeQuest).asPosition()
-      val start = game.me.toPosition()
-      debugPathfinding("Going from $start to $target")
+      debugPathfinding("Going from ${game.me.position} to $target")
       val path = game.board.moveAsCloseAsPossible(
-          start,
+          game.me,
           target
       )
-      debugPathfinding("Path: " + path.joinToString("->"))
-      moveCommand(path)
+      debugPathfinding("Path: " + path.joinToString(" -> "){ it.positionOnly().toString() })
+      if (path.isEmpty()) {
+        pass()
+      }
+      else {
+        moveCommand(path.asDirections())
+      }
     }
   }
 }
@@ -268,7 +285,7 @@ data class Game(
         colPush.flatMap { idx -> Direction.vertical.map { Push(idx, it) } }
   }
 
-  fun shortestPath(playerId: PlayerId, position: Position): List<PositionLike> {
+  fun shortestPath(playerId: PlayerId, position: PositionLike): List<PositionLike> {
     val path = board.shortestPath(
         positionOf(playerId),
         position
@@ -285,9 +302,12 @@ fun Iterable<PositionLike>.asDirections(): List<Direction> {
 }
 
 private fun parsePlayer(input: Scanner): Player {
+  val numCards = input.nextInt()
+  val col = input.nextInt()
+  val row = input.nextInt()
   return Player(
-      input.nextInt(),
-      input.nextInt() X input.nextInt(),
+      numCards,
+      row X col,
       Tile(input.next())
   )
 }
@@ -534,7 +554,15 @@ data class Board(val grid: List<List<Tile>>) {
    * All the accessible tiles, as far as it's possible to go
    * TODO: limit to 20 steps
    */
-  fun getAccessibleTiles(start: Position): Node<TileWithPositionLike> {
+  val accessibleTilesCache = mutableMapOf<PositionLike, Node<TileWithPositionLike>>()
+
+  fun getAccessibleTiles(start: PositionLike): Node<TileWithPositionLike> {
+    return accessibleTilesCache.computeIfAbsent(start) {
+      internalGetAccessibleTiles(start)
+    }
+  }
+
+  private fun internalGetAccessibleTiles(start: PositionLike): Node<TileWithPositionLike> {
     val startTile = this[start]
     val s = startTile.withPosition(start)
     val root = Node(s)
@@ -572,28 +600,23 @@ data class Board(val grid: List<List<Tile>>) {
 
   fun moveAsCloseAsPossible(
       start: PositionLike,
-      target: PositionLike,
-      pathSoFar: List<Direction> = listOf()
-  ): List<Direction> {
-    val paths = mutableListOf(start to pathSoFar)
-    val visited = mutableListOf<PositionLike>()
-    val todo = mutableListOf(start to pathSoFar)
+      target: PositionLike
+  ): List<PositionLike> {
+    val accessible = getAccessibleTiles(start)
+    debugPathfinding("Accessible: ${accessible.allElements().map { it.asPosition() }}")
+    // TODO: may be more than 1 closest tile
+    val closest = accessible.allElements().minBy {
+      it.distanceTo(target)
+    }
+    debugPathfinding("Closest tile: $closest")
 
-    while (todo.isNotEmpty()) {
-      val (current, path) = todo.removeAt(0)
-      visited.add(current)
-      val directions = getPossibleDirections(current)
-      directions.filter {
-        current.translatedPositionTo(it) !in visited
-      }.forEach {
-        val next = current.translatedPositionTo(it)
-        paths.add(next to (path + it))
-      }
+    return if (closest != null) {
+      shortestPath(start, closest)
+    }
+    else {
+      listOf()
     }
 
-    return paths.minBy {
-      it.first.distanceTo(target)
-    }?.second ?: listOf()
   }
 
   fun getEdgeTiles(): List<TileWithPositionLike> =
@@ -606,12 +629,12 @@ data class Board(val grid: List<List<Tile>>) {
   fun randomPosition(): Position =
       (0..lastRow).toList().pickOne() X (0..lastCol).toList().pickOne()
 
-  fun shortestPath(positionOf: Position, position: Position): List<PositionLike> {
+  fun shortestPath(start: PositionLike, end: PositionLike): List<PositionLike> {
     return Dijkstra
         .path(
             this.graph,
-            getWithPosition(positionOf),
-            getWithPosition(position)
+            getWithPosition(start),
+            getWithPosition(end)
         )
   }
 }
@@ -621,13 +644,8 @@ data class Player(
      * the total number of quests for a player (hidden and revealed)
      */
     val numPlayerCards: Int, val position: Position, val tile: Tile
-) {
+) : PositionLike by position {
   fun toPosition() = position
-
-  val row
-    get() = position.row
-  val col
-    get() = position.col
 }
 
 enum class PlayerId {
@@ -721,6 +739,9 @@ class TileBuilder(
 fun pushCommand(index: Int, direction: Direction) =
     println("PUSH $index $direction")
 
+fun pushCommand(push: Push) =
+    println("PUSH ${push.index} ${push.direction}")
+
 fun moveCommand(vararg direction: Direction) =
     moveCommand(direction.toList())
 
@@ -733,7 +754,7 @@ fun pass() =
     println("PASS")
 
 data class Position(override val row: Int, override val col: Int) : PositionLike {
-
+  override fun positionOnly() = this
 }
 
 infix fun Int.X(that: Int) =
@@ -863,7 +884,7 @@ object Dijkstra {
     }.mapTo(LinkedList()) {
       it
     }
-    println("Preparing to browse " + toExplore.joinToString())
+//    println("Preparing to browse " + toExplore.joinToString())
 
     val distances = LinkedHashMap<T, Pair<T, Int>>()
     distances[a] = a to 0
