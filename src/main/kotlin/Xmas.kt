@@ -6,6 +6,7 @@ import PlayerId.IT
 import PlayerId.ME
 import TurnType.MOVE
 import TurnType.PUSH
+import java.util.LinkedList
 import java.util.Random
 import java.util.Scanner
 import kotlin.math.abs
@@ -63,6 +64,34 @@ interface PositionLike {
 
   fun distanceTo(other: PositionLike) =
       abs(other.row - this.row) + abs(other.col - this.col)
+
+  /**
+   * Relative postion starting from this, going to other.
+   * The gap may onbly be one tile.
+   */
+  fun directionTo(other: PositionLike): Direction {
+    fun thrower(): Nothing {
+      throw IllegalArgumentException("Can only compute distances to adjacent positions")
+    }
+
+    if (this.distanceTo(other) != 1) {
+      thrower()
+    }
+
+    return when {
+      this.row == other.row -> when (other.col - this.col) {
+        -1 -> LEFT
+        1 -> RIGHT
+        else -> thrower()
+      }
+      this.col == other.col -> when (other.row - this.row) {
+        -1 -> UP
+        1 -> DOWN
+        else -> thrower()
+      }
+      else -> thrower()
+    }
+  }
 }
 
 interface TileWithPositionLike : TileLike, PositionLike {
@@ -109,6 +138,11 @@ object Strategies {
     override fun push(game: Game) {
       // TODO: handle multiple targets
       // if can go to any quest item
+      val accessibleItems = game.getAccessibleItems(ME)
+      if (accessibleItems.isNotEmpty()) {
+        // find a way to push stuff so it doesn't disturb the path
+//        game.pushNotOnPathTo(accessibleItems.first())
+      }
       pushCommand(Dice.nextInt(7), Direction.values().pickOne())
     }
 
@@ -206,6 +240,7 @@ data class Game(
     val it: Player,
     val questBook: QuestBook
 ) {
+
   fun getAnyQuestItemOnTheEdge(player: PlayerId): List<TileWithPositionLike> =
       board.getEdgeTiles().filter {
         it.item?.playerId == player
@@ -223,6 +258,29 @@ data class Game(
         ME -> me.position
         IT -> it.position
       }
+
+  fun pushNotOnPathTo(playerId: PlayerId, first: PositionLike): List<Push> {
+    val start = positionOf(playerId)
+
+    return listOf()
+  }
+
+  fun shortestPath(playerId: PlayerId, position: Position): List<Direction> {
+    val path =  Dijkstra
+        .path(
+            board.graph,
+            board.getWithPosition(positionOf(playerId)),
+            board.getWithPosition(position)
+        )
+
+    return path.asDirections()
+  }
+}
+
+fun Iterable<PositionLike>.asDirections(): List<Direction> {
+  return this.zipWithNext().map {
+    it.first.directionTo(it.second)
+  }
 }
 
 private fun parsePlayer(input: Scanner): Player {
@@ -314,6 +372,21 @@ data class Board(val grid: List<List<Tile>>) {
         tile.withPosition(rowIdx X colIdx)
       }
     }
+  }
+
+  val graph: Graph<TileWithPositionLike> by lazy {
+    val graph = Graph<TileWithPositionLike>()
+    gridWithPosition.flatMap { row ->
+      row.map { tile ->
+        tile to getPossibleAdjacentMoves(tile)
+      }
+    }.forEach {
+      val from = it.first
+      it.second.forEach { to ->
+        graph.addEdge(from, to)
+      }
+    }
+    graph
   }
 
   val height by lazy {
@@ -453,6 +526,9 @@ data class Board(val grid: List<List<Tile>>) {
   operator fun get(position: PositionLike) =
       this.grid[position.row][position.col]
 
+  fun getWithPosition(position: PositionLike) =
+      this.gridWithPosition[position.row][position.col]
+
   /**
    * All the accessible tiles, as far as it's possible to go
    * TODO: limit to 20 steps
@@ -546,7 +622,7 @@ data class Player(
 
 enum class PlayerId {
   ME,
-  IT
+  IT // rename P2
   //
   ;
 
@@ -712,4 +788,89 @@ data class QuestBook(val quests: List<Quest>) {
     quests.filter { it.questPlayerId == IT }
   }
 
+}
+
+data class Push(val index: Int, val direction: Direction)
+
+
+class Graph<T> where T : PositionLike {
+  val internalEdges = HashMap<T, MutableSet<T>>() // map<from, to>
+
+  val edges: Map<T, Set<T>>
+    get() = internalEdges
+
+  val nodes
+    get() = internalEdges.keys as Set<T>
+
+  fun addEdge(a: T, b: T) {
+    if (hasEdge(a, b)) {
+      return // skip
+    }
+    else {
+      internalEdges.computeIfAbsent(a) {
+        mutableSetOf()
+      }.add(b)
+
+      internalEdges.computeIfAbsent(b) {
+        mutableSetOf()
+      }.add(a)
+    }
+  }
+
+  private fun hasEdge(a: T, b: T) =
+      internalEdges[a]?.contains(b) ?: false
+
+  fun adjacentNodes(node: T): Set<T> {
+    return edges[node] ?: setOf()
+  }
+
+  fun edgeValue(a: T, b: T) =
+      if (internalEdges[a]?.contains(b) ?: false) 1 else 50
+}
+
+
+object Dijkstra {
+  val INF = Integer.MAX_VALUE
+
+  fun <T : PositionLike> path(g: Graph<T>, a: T, b: T): List<T> {
+    val nodes = g.nodes.filter {
+      it != b
+    }.mapTo(LinkedList()) {
+      it
+    }
+    println("Preparing to browse " + nodes.joinToString())
+
+    val distances = LinkedHashMap<T, Pair<T, Int>>()
+    distances[a] = a to 0
+
+    var current: T = a
+    while (distances[b] == null) {
+      println("Currently at $current")
+      g.adjacentNodes(current).forEach {
+        val distance = g.edgeValue(current, it) + distances[current]!!.second
+        if (distance < distances[it]?.second ?: INF) {
+          distances[it] = current to distance
+        }
+      }
+
+      println("Best distance: " + distances[b])
+      nodes.remove(current)
+      current = distances.filter {
+        it.key in nodes
+      }.minBy {
+        it.value.second
+      }?.key ?: continue
+    }
+
+    current = b
+    val path = mutableListOf<T>(current)
+    while (current != a) {
+      val previous = distances[current]
+      path.add(previous!!.first)
+      current = previous.first
+    }
+    path.reverse()
+
+    return path
+  }
 }

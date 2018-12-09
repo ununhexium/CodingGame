@@ -10,7 +10,7 @@ import Tile
 import TileWithPositionLike
 import X
 import net.lab0.coding.game.xmasrush.Helpers.asciiToSelection
-import net.lab0.coding.game.xmasrush.Helpers.asciiToTiles
+import net.lab0.coding.game.xmasrush.Helpers.asciiGridToTiles
 import org.assertj.core.api.Assertions.assertThat
 import org.funktionale.currying.curried
 import org.junit.jupiter.api.DynamicTest
@@ -196,7 +196,7 @@ internal class BoardTest {
   }
 
   val tester = { input:String, coordinates:String, code: Char, position: Position ->
-    val board = Board(Helpers.asciiToTiles(input))
+    val board = Board(Helpers.asciiGridToTiles(input))
     val selection = asciiToSelection(board, coordinates, code)
     println("Selection:")
     println(showSelection(coordinates, code))
@@ -325,7 +325,7 @@ internal class BoardTest {
       >┬├─┴┐─┼
     """.trimMargin(">")
 
-    val board = Board(asciiToTiles(grid))
+    val board = Board(asciiGridToTiles(grid))
     val edgeTiles: List<TileWithPositionLike> = board.getEdgeTiles()
 
     val sizeTest = listOf(

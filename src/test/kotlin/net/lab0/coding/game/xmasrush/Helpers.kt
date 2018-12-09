@@ -13,7 +13,7 @@ import pickOne
 
 object Helpers {
 
-  fun asciiToTiles(grid: String): List<List<Tile>> =
+  fun asciiGridToTiles(grid: String): List<List<Tile>> =
       grid.split("\n").map { row ->
         row.map {
           with(TileBuilder()) {
