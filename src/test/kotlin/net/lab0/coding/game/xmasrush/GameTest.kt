@@ -1,7 +1,6 @@
 package net.lab0.coding.game.xmasrush
 
 import Board
-import Direction
 import Direction.DOWN
 import Direction.LEFT
 import Direction.RIGHT
@@ -19,6 +18,7 @@ import QuestBook
 import TileWithPositionLike
 import TurnType
 import X
+import asDirections
 import org.assertj.core.api.Assertions.assertThat
 import org.funktionale.currying.curried
 import org.funktionale.currying.uncurried
@@ -61,7 +61,7 @@ internal class GameTest {
     }.flatten()
   }
 
-  @RepeatedTest(100)
+  @RepeatedTest(10)
   fun `can tell if 3 items are on the edge of the board`() {
     val size = 7
     val game = createGame(size)
@@ -377,10 +377,49 @@ internal class GameTest {
         .addQuest(Quest(item.name, ME))
         .build()
 
-    val propositions: List<Direction> = game.shortestPath(ME, position)
+    val propositions = game.shortestPath(ME, position).asDirections()
     assertThat(propositions).containsExactlyInAnyOrderElementsOf(
         listOf(DOWN, DOWN, DOWN, DOWN, RIGHT, RIGHT, RIGHT, RIGHT)
     )
+  }
+
+  @Test
+  fun `does not fail on impossible path`() {
+    val canMoveSomethingElse = """
+      >┼└
+    """.trimMargin(">")
+
+    val position = 0 X 1
+
+    val game = GameBuilder()
+        .withGrid(canMoveSomethingElse)
+        .withMyPosition(0 X 0)
+        .build()
+
+    val path = game.shortestPath(ME, position)
+    assertThat(path).isEmpty()
+    val propositions = path.asDirections()
+    assertThat(propositions).isEmpty()
+  }
+
+  @Test
+  fun `does not run in circles`() {
+    val canMoveSomethingElse = """
+      >┼┼└
+      >┼┼└
+    """.trimMargin(">")
+
+    val position = 1 X 2
+
+    val game = GameBuilder()
+        .withGrid(canMoveSomethingElse)
+        .withMyPosition(0 X 0)
+        .build()
+
+    val path = game.shortestPath(ME, position)
+    assertThat(path).isEmpty()
+    val propositions = path.asDirections()
+    assertThat(propositions).isEmpty()
   }
 
   @Test
@@ -395,19 +434,19 @@ internal class GameTest {
       >┴─────┴
     """.trimMargin(">")
 
-    val item = Item("A", ME)
-    val position = 5 X 3
+    val position = 4 X 4
 
     val game = GameBuilder()
         .withGrid(canMoveSomethingElse)
         .withMyPosition(0 X 0)
-        .addItem(item, position)
-        .addQuest(Quest("A", ME))
         .build()
 
-    val propositions: List<Push> = game.pushNotOnPathTo(ME, position)
+    val path = game.shortestPath(ME, position)
+    val propositions: List<Push> = game.pushNotOnPath(path)
     assertThat(propositions).containsExactlyInAnyOrderElementsOf(
         listOf(
+            Push(5, RIGHT),
+            Push(5, LEFT),
             Push(6, RIGHT),
             Push(6, LEFT),
             Push(5, UP),
@@ -433,7 +472,7 @@ internal class GameTest {
     """.trimMargin(">")
 
     val item = Item("A", ME)
-    val position = 5 X 3
+    val position = 6 X 6
 
     val game = GameBuilder()
         .withGrid(mustChangeTheExistingPath)
@@ -442,8 +481,9 @@ internal class GameTest {
         .addQuest(Quest("A", ME))
         .build()
 
+    val path = game.shortestPath(ME, position)
     // when
-    val propositions: List<Push> = game.pushNotOnPathTo(ME, position)
+    val propositions: List<Push> = game.pushNotOnPath(path)
 
     // it lists all the possible path-changing but preserving moves
     assertThat(propositions).containsExactlyInAnyOrderElementsOf(

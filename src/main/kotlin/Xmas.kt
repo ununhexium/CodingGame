@@ -259,21 +259,22 @@ data class Game(
         IT -> it.position
       }
 
-  fun pushNotOnPathTo(playerId: PlayerId, first: PositionLike): List<Push> {
-    val start = positionOf(playerId)
-
-    return listOf()
+  fun pushNotOnPath(path: List<PositionLike>): List<Push> {
+    val usedRows = path.map { it.row }.distinct()
+    val usedCols = path.map { it.col }.distinct()
+    val rowPush = (0..board.lastRow).filter { it !in usedRows }
+    val colPush = (0..board.lastCol).filter { it !in usedCols }
+    return rowPush.flatMap { idx -> Direction.horizontal.map { Push(idx, it) } } +
+        colPush.flatMap { idx -> Direction.vertical.map { Push(idx, it) } }
   }
 
-  fun shortestPath(playerId: PlayerId, position: Position): List<Direction> {
-    val path =  Dijkstra
-        .path(
-            board.graph,
-            board.getWithPosition(positionOf(playerId)),
-            board.getWithPosition(position)
-        )
+  fun shortestPath(playerId: PlayerId, position: Position): List<PositionLike> {
+    val path = board.shortestPath(
+        positionOf(playerId),
+        position
+    )
 
-    return path.asDirections()
+    return path
   }
 }
 
@@ -603,7 +604,16 @@ data class Board(val grid: List<List<Tile>>) {
           }
 
   fun randomPosition(): Position =
-      (0..lastCol).toList().pickOne() X (0..lastRow).toList().pickOne()
+      (0..lastRow).toList().pickOne() X (0..lastCol).toList().pickOne()
+
+  fun shortestPath(positionOf: Position, position: Position): List<PositionLike> {
+    return Dijkstra
+        .path(
+            this.graph,
+            getWithPosition(positionOf),
+            getWithPosition(position)
+        )
+  }
 }
 
 data class Player(
@@ -648,6 +658,18 @@ enum class Direction {
   RIGHT,
   DOWN,
   LEFT
+  //
+  ;
+
+  companion object {
+    val horizontal by lazy {
+      listOf(LEFT, RIGHT)
+    }
+
+    val vertical by lazy {
+      listOf(UP, DOWN)
+    }
+  }
 }
 
 /**
@@ -830,40 +852,47 @@ class Graph<T> where T : PositionLike {
 
 
 object Dijkstra {
-  val INF = Integer.MAX_VALUE
+  private val INF = Integer.MAX_VALUE
 
   fun <T : PositionLike> path(g: Graph<T>, a: T, b: T): List<T> {
-    val nodes = g.nodes.filter {
+    val nodes = g.nodes
+    if (b !in nodes) return listOf() // impossible
+
+    val toExplore = nodes.filter {
       it != b
     }.mapTo(LinkedList()) {
       it
     }
-    println("Preparing to browse " + nodes.joinToString())
+    println("Preparing to browse " + toExplore.joinToString())
 
     val distances = LinkedHashMap<T, Pair<T, Int>>()
     distances[a] = a to 0
 
     var current: T = a
-    while (distances[b] == null) {
-      println("Currently at $current")
-      g.adjacentNodes(current).forEach {
+    var safeguard = 100
+    while (distances[b] == null && safeguard-- >= 0) {
+      debugPathfinding("Currently at $current")
+
+      val nonVisitedAdjacentNodes = g.adjacentNodes(current)
+
+      nonVisitedAdjacentNodes.forEach {
         val distance = g.edgeValue(current, it) + distances[current]!!.second
         if (distance < distances[it]?.second ?: INF) {
           distances[it] = current to distance
         }
       }
 
-      println("Best distance: " + distances[b])
-      nodes.remove(current)
+      debugPathfinding("Best distance: " + distances[b])
+      toExplore.remove(current)
       current = distances.filter {
-        it.key in nodes
+        it.key in toExplore
       }.minBy {
         it.value.second
       }?.key ?: continue
     }
 
     current = b
-    val path = mutableListOf<T>(current)
+    val path = mutableListOf(current)
     while (current != a) {
       val previous = distances[current]
       path.add(previous!!.first)
