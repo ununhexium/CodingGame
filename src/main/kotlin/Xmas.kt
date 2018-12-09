@@ -2,6 +2,8 @@ import Direction.DOWN
 import Direction.LEFT
 import Direction.RIGHT
 import Direction.UP
+import PlayerId.IT
+import PlayerId.ME
 import TurnType.MOVE
 import TurnType.PUSH
 import java.util.Random
@@ -21,6 +23,9 @@ numPlayerCards = 1
 
 Response time for the first turn ≤ 1s
 Response time per turn ≤ 50ms
+
+TODO
+can 2 players be on the same tile
  */
 
 
@@ -73,7 +78,7 @@ interface TileWithPositionLike : TileLike, PositionLike {
 }
 
 object Strategies {
-  var current = StochasticWalk
+  var current = BestEffort
 
   /**
    * With the approbation of the Ministry of Silly Walks.
@@ -102,14 +107,19 @@ object Strategies {
    */
   object BestEffort : Strategy {
     override fun push(game: Game) {
+      // TODO: handle multiple targets
+      // if can go to any quest item
       pushCommand(Dice.nextInt(7), Direction.values().pickOne())
     }
 
     override fun move(game: Game) {
-      val activeQuest = game.quests.first()
+      val activeQuest = game.questBook.quests.first()
+      val target = game.board.getTileWithQuestItem(activeQuest).asPosition()
+      val start = game.me.toPosition()
+      debugPathfinding("Going from $start to $target")
       val path = game.board.moveAsCloseAsPossible(
-          game.me.toPosition(),
-          game.board.getTileWithQuestItem(activeQuest).asPosition()
+          start,
+          target
       )
       debugPathfinding("Path: " + path.joinToString("->"))
       moveCommand(path)
@@ -161,7 +171,7 @@ private fun parseGame(input: Scanner): Game {
 
   debugParsing("Players")
   val me = parsePlayer(input)
-  val foe = parsePlayer(input)
+  val it = parsePlayer(input)
 
   debugParsing("Items")
   val numItems = input.nextInt() // the total number of items available on board and on player tiles
@@ -170,11 +180,11 @@ private fun parseGame(input: Scanner): Game {
     val itemX = input.nextInt()
     val itemY = input.nextInt()
     val itemPlayerId = input.nextInt()
-    val item = Item(itemName, itemPlayerId)
+    val item = Item(itemName, PlayerId.from(itemPlayerId))
 
     when (itemX) {
       -1 -> me.tile.item = item
-      -2 -> foe.tile.item = item
+      -2 -> it.tile.item = item
       else -> board.grid[itemY][itemX].item = item
     }
   }
@@ -185,7 +195,7 @@ private fun parseGame(input: Scanner): Game {
     Quest(input.next(), PlayerId.from(input.nextInt()))
   }
 
-  val game = Game(turnType, board, me, foe, quests)
+  val game = Game(turnType, board, me, it, QuestBook(quests))
   return game
 }
 
@@ -193,15 +203,32 @@ data class Game(
     val turnType: TurnType,
     val board: Board,
     val me: Player,
-    val foe: Player,
-    val quests: List<Quest>
-)
+    val it: Player,
+    val questBook: QuestBook
+) {
+  fun getAnyQuestItemOnTheEdge(player: PlayerId): List<TileWithPositionLike> =
+      board.getEdgeTiles().filter {
+        it.item?.playerId == player
+      }
+
+  fun getAccessibleItems(playerId: PlayerId): List<TileWithPositionLike> =
+      board.getAccessibleTiles(positionOf(playerId)).allElements().filter {
+        it.tile.item != null
+      }.filter {
+        it.tile.item?.name in questBook.myQuestsObjectNames
+      }
+
+  fun positionOf(playerId: PlayerId) =
+      when (playerId) {
+        ME -> me.position
+        IT -> it.position
+      }
+}
 
 private fun parsePlayer(input: Scanner): Player {
   return Player(
       input.nextInt(),
-      input.nextInt(),
-      input.nextInt(),
+      input.nextInt() X input.nextInt(),
       Tile(input.next())
   )
 }
@@ -280,6 +307,28 @@ data class Board(val grid: List<List<Tile>>) {
         }
       }
   )
+
+  val gridWithPosition by lazy {
+    grid.mapIndexed { rowIdx, row ->
+      row.mapIndexed { colIdx, tile ->
+        tile.withPosition(rowIdx X colIdx)
+      }
+    }
+  }
+
+  val height by lazy {
+    grid.size
+  }
+
+  val lastRow
+    get() = height - 1
+
+  val width by lazy {
+    grid.first().size
+  }
+
+  val lastCol
+    get() = width - 1
 
   /**
    * Each player can choose to push any row or column on the board.
@@ -360,13 +409,13 @@ data class Board(val grid: List<List<Tile>>) {
     ) to this.grid.first()[colIndex]
   }
 
-  fun getAvailableSpaceDirections(position: PositionLike) =
-      getAvailableSpaceDirections(position.row, position.col)
+  fun getAvailableAdjacentDirections(position: PositionLike) =
+      getAvailableAdjacentDirections(position.row, position.col)
 
   /**
    * What is in principle available, given the board and only '+' tiles
    */
-  fun getAvailableSpaceDirections(row: Int, col: Int): Set<Direction> {
+  fun getAvailableAdjacentDirections(row: Int, col: Int): Set<Direction> {
     val set = Direction.values().toMutableSet()
 
     if (row == 0) set.remove(UP)
@@ -378,11 +427,11 @@ data class Board(val grid: List<List<Tile>>) {
   }
 
   /**
-   * Where it's possible to move, given the tiles arround the given position
+   * Where it's possible to move to a directly adjacent tile, given the tiles around the given position.
    */
-  fun getPossibleMoves(from: PositionLike): List<TileWithPositionLike> {
+  fun getPossibleAdjacentMoves(from: PositionLike): List<TileWithPositionLike> {
     val fromTile = this[from]
-    return this.getAvailableSpaceDirections(from).mapNotNull {
+    return this.getAvailableAdjacentDirections(from).mapNotNull {
       val to = from.translatedPositionTo(it)
       val targetTile = this[to]
       if (fromTile.canMoveTowards(it, targetTile)) targetTile.withPosition(to) else null
@@ -394,7 +443,7 @@ data class Board(val grid: List<List<Tile>>) {
    */
   fun getPossibleDirections(from: PositionLike): List<Direction> {
     val fromTile = this[from]
-    return this.getAvailableSpaceDirections(from).filter {
+    return this.getAvailableAdjacentDirections(from).filter {
       val to = from.translatedPositionTo(it)
       val targetTile = this[to]
       fromTile.canMoveTowards(it, targetTile)
@@ -404,11 +453,15 @@ data class Board(val grid: List<List<Tile>>) {
   operator fun get(position: PositionLike) =
       this.grid[position.row][position.col]
 
+  /**
+   * All the accessible tiles, as far as it's possible to go
+   * TODO: limit to 20 steps
+   */
   fun getAccessibleTiles(start: Position): Node<TileWithPositionLike> {
     val startTile = this[start]
     val s = startTile.withPosition(start)
     val root = Node(s)
-    val todo = this.getPossibleMoves(s).filter {
+    val todo = this.getPossibleAdjacentMoves(s).filter {
       it !in root
     }.map {
       root to it
@@ -418,7 +471,7 @@ data class Board(val grid: List<List<Tile>>) {
       val (parentNode, current) = todo.removeAt(0)
       parentNode.children.add(Node(current))
       todo.addAll(
-          this.getPossibleMoves(current).filter {
+          this.getPossibleAdjacentMoves(current).filter {
             it !in root
           }.map {
             root to it
@@ -445,7 +498,7 @@ data class Board(val grid: List<List<Tile>>) {
       target: PositionLike,
       pathSoFar: List<Direction> = listOf()
   ): List<Direction> {
-    val paths = mutableListOf<Pair<PositionLike, List<Direction>>>()
+    val paths = mutableListOf(start to pathSoFar)
     val visited = mutableListOf<PositionLike>()
     val todo = mutableListOf(start to pathSoFar)
 
@@ -463,27 +516,37 @@ data class Board(val grid: List<List<Tile>>) {
 
     return paths.minBy {
       it.first.distanceTo(target)
-    }!!.second
+    }?.second ?: listOf()
   }
+
+  fun getEdgeTiles(): List<TileWithPositionLike> =
+      this.gridWithPosition.first() +
+          this.gridWithPosition.last() +
+          this.gridWithPosition.drop(1).dropLast(1).flatMap {
+            listOf(it.first(), it.last())
+          }
+
+  fun randomPosition(): Position =
+      (0..lastCol).toList().pickOne() X (0..lastRow).toList().pickOne()
 }
 
 data class Player(
     /**
      * the total number of quests for a player (hidden and revealed)
      */
-    val numPlayerCards: Int, val x: Int, val y: Int, val tile: Tile
+    val numPlayerCards: Int, val position: Position, val tile: Tile
 ) {
-  fun toPosition() = Position(this.row, this.col)
+  fun toPosition() = position
 
   val row
-    get() = y
+    get() = position.row
   val col
-    get() = x
+    get() = position.col
 }
 
 enum class PlayerId {
   ME,
-  FOE
+  IT
   //
   ;
 
@@ -495,7 +558,7 @@ enum class PlayerId {
   }
 }
 
-data class Item(val name: String, val id: Int)
+data class Item(val name: String, val playerId: PlayerId)
 
 /**
  *      Each quest corresponds to an item on the board.
@@ -561,10 +624,12 @@ fun pushCommand(index: Int, direction: Direction) =
     println("PUSH $index $direction")
 
 fun moveCommand(vararg direction: Direction) =
-    println("MOVE ${direction.joinToString(" ") { it.toString() }}")
+    moveCommand(direction.toList())
 
-fun moveCommand(directions: List<Direction>) =
-    println("MOVE ${directions.joinToString(" ") { it.toString() }}")
+fun moveCommand(directions: List<Direction>) {
+  if (directions.isEmpty()) pass()
+  else println("MOVE ${directions.joinToString(" ") { it.toString() }}")
+}
 
 fun pass() =
     println("PASS")
@@ -583,6 +648,18 @@ object Dice : Random() {
 
 fun <T> Array<T>.pickOne() = this[Dice.nextInt(this.size)]
 fun <T> List<T>.pickOne() = this[Dice.nextInt(this.size)]
+fun <T> List<T>.pick(n: Int): List<T> {
+  val available = this.toMutableList()
+  val picked = mutableListOf<T>()
+
+  (1..n).onEach {
+    val index = Dice.nextInt(available.size)
+    val t = available.removeAt(index)
+    picked.add(t)
+  }
+
+  return picked
+}
 
 fun debug(s: String) = System.err.println(s)
 fun debugPathfinding(s: String) {
@@ -622,4 +699,17 @@ operator fun <T> Node<T>.contains(element: T): Boolean {
     children.isNotEmpty() -> this.children.any { it.contains(element) }
     else -> false
   }
+}
+
+data class QuestBook(val quests: List<Quest>) {
+  val myQuests by lazy {
+    quests.filter { it.questPlayerId == ME }
+  }
+  val myQuestsObjectNames by lazy {
+    myQuests.map { it.questItemName }
+  }
+  val itsQuests by lazy {
+    quests.filter { it.questPlayerId == IT }
+  }
+
 }

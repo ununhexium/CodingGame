@@ -9,6 +9,7 @@ import Tile
 import TileBuilder
 import TileWithPositionLike
 import X
+import pickOne
 
 object Helpers {
 
@@ -51,6 +52,19 @@ object Helpers {
         }
         this.toSet()
       }
+
+  fun asciiGridGenerator(size: Int): String {
+    val sources = ".╷╵╴╶┘└┐┌│─┬┴├┤┼"
+    val used = sources.drop(5)
+
+    return (1..size).map {
+      (1..size).map {
+        used.toList().pickOne()
+      }
+    }.joinToString("\n") {
+      it.joinToString("")
+    }
+  }
 }
 
 

@@ -10,6 +10,7 @@ import Tile
 import TileWithPositionLike
 import X
 import net.lab0.coding.game.xmasrush.Helpers.asciiToSelection
+import net.lab0.coding.game.xmasrush.Helpers.asciiToTiles
 import org.assertj.core.api.Assertions.assertThat
 import org.funktionale.currying.curried
 import org.junit.jupiter.api.DynamicTest
@@ -188,10 +189,22 @@ internal class BoardTest {
           "At [${it.first.row};${it.first.col}] can go to ${it.second.joinToString()}"
       ) {
         assertThat(
-            board.getAvailableSpaceDirections(it.first.row, it.first.col)
+            board.getAvailableAdjacentDirections(it.first.row, it.first.col)
         ).containsExactlyInAnyOrder(*it.second.toTypedArray())
       }
     }
+  }
+
+  val tester = { input:String, coordinates:String, code: Char, position: Position ->
+    val board = Board(Helpers.asciiToTiles(input))
+    val selection = asciiToSelection(board, coordinates, code)
+    println("Selection:")
+    println(showSelection(coordinates, code))
+    val accessible: Set<TileWithPositionLike> = board.getAccessibleTiles(position).allElements()
+        .toSet()
+    println("Accessible:")
+    println(showAccessible(accessible))
+    assertThat(accessible).containsExactlyInAnyOrderElementsOf(selection)
   }
 
   @TestFactory
@@ -207,7 +220,6 @@ internal class BoardTest {
       > ┐┤─┬┌┐┴
       > ├┬└┤└┘└
     """.trimMargin("> ")
-    val board = Board(Helpers.asciiToTiles(input))
 
     println("Grid:")
     println(input)
@@ -222,33 +234,50 @@ internal class BoardTest {
       |  5544
     """.trimMargin()
 
-    val tester = { code: Char, position: Position ->
-      val selection = asciiToSelection(board, coordinates, code)
-      println("Selection:")
-      println(showSelection(coordinates, code))
-      val accessible: Set<TileWithPositionLike> = board.getAccessibleTiles(position).allElements().toSet()
-      println("Accessible:")
-      println(showAccessible(accessible))
-      assertThat(accessible).containsExactlyInAnyOrderElementsOf(selection)
-    }
-
     return listOf(
         dynamicTest("Selection 1") {
-          tester('1', 0 X 0)
+          tester(input, coordinates, '1', 0 X 0)
         },
         dynamicTest("Selection 2") {
-          tester('2', 0 X 6)
+          tester(input, coordinates, '2', 0 X 6)
         },
         dynamicTest("Selection 3") {
-          tester('3', 0 X 4)
+          tester(input, coordinates, '3', 0 X 4)
         },
         dynamicTest("Selection 4") {
-          tester('4', 5 X 4)
+          tester(input, coordinates, '4', 5 X 4)
         },
         dynamicTest("Selection 5") {
-          tester('5', 5 X 3)
+          tester(input, coordinates, '5', 5 X 3)
         }
     )
+  }
+
+  @Test
+  fun `check reachability 1`(){
+    val grid = """
+      >┼┼.┴│.┐
+      >┤│.┘┼┬.
+      >└│┬├┘│├
+      >┘┐┼┬└└├
+      >┤┘└┐┘┼┴
+      >┐┤─┬┌┐┴
+      >├┬└┤└┘└
+    """.trimMargin(">")
+
+    val accessible = """
+      |11
+      |11
+      |11
+      |
+      |
+      |
+      |
+    """.trimMargin()
+
+    dynamicTest("Selection 1") {
+      tester(grid, accessible, '1', 0 X 0)
+    }
   }
 
   private fun showSelection(coordinates: String, code: Char, size: Int = 7) =
@@ -282,5 +311,43 @@ internal class BoardTest {
     }.joinToString("\n")
 
     return header + "\n" + prefixed
+  }
+
+  @TestFactory
+  fun `can get edge tiles`(): Iterable<DynamicTest> {
+    val grid = """
+      >┬┬┬┌┘┼│
+      >┘└┴├┼┴─
+      >├├└├├│└
+      >─┼─└─└┐
+      >┘┌┴├│┬┌
+      >┐└┼┤┘┴┐
+      >┬├─┴┐─┼
+    """.trimMargin(">")
+
+    val board = Board(asciiToTiles(grid))
+    val edgeTiles: List<TileWithPositionLike> = board.getEdgeTiles()
+
+    val sizeTest = listOf(
+        dynamicTest("Have all tiles") {
+          assertThat(edgeTiles.toSet()).hasSize(6 * 4)
+        }
+    )
+    val positionTests = edgeTiles.map {
+      dynamicTest("Tile@${it.asPosition()}") {
+        assertThat(
+            listOf(
+                it.asPosition().row == 0,
+                it.asPosition().col == 0,
+                it.asPosition().row == board.lastRow,
+                it.asPosition().col == board.lastCol
+            ).any {
+              it
+            }
+        ).isTrue()
+      }
+    }
+
+    return sizeTest + positionTests
   }
 }
