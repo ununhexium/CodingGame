@@ -1,12 +1,11 @@
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 val assertJVersion = "3.10.0"
-val guavaVersion = "25.1-jre"
 val junitPlatformVersion = "1.2.0"
 val junitJupiterVersion = "5.2.0"
 
 version = "0.0.1-SNAPSHOT"
-group = "net.lab0.nebula.reloaded"
+group = "net.lab0.codingame"
 
 buildscript {
   repositories {
@@ -19,7 +18,7 @@ buildscript {
 }
 
 plugins {
-  val kotlinVersion = "1.2.60"
+  val kotlinVersion = "1.3.0"
   idea
   java
   id("org.jetbrains.kotlin.jvm") version kotlinVersion
@@ -50,8 +49,6 @@ repositories {
 
 dependencies {
 
-  compile("net.lab0.kotlin.more:morekotlin:0.1.4")
-
   compile("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
   compile("org.jetbrains.kotlin:kotlin-reflect")
 
@@ -65,12 +62,4 @@ dependencies {
 
 tasks.withType<Test> {
   useJUnitPlatform()
-}
-
-tasks {
-  task<Exec>("htmlDeps") {
-    dependsOn("htmlDependencyReport")
-    val browser = "/usr/bin/sensible-browser"
-    commandLine(browser, "build/reports/project/dependencies/index.html")
-  }
 }

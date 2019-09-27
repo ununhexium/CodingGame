@@ -1,12 +1,11 @@
 package net.lab0.coding.game.nospoon2
 
-import net.lab0.tools.delegated.SetOnce
 import java.util.Scanner
 
 class ThereIsNoSpoon2 {
 
-    var width: Int by SetOnce()
-    var height: Int by SetOnce()
+    var width: Int = -1
+    var height: Int = -1
 
     fun main(args: Array<String>) {
         val input = Scanner(System.`in`)
