@@ -1,9 +1,13 @@
-package net.lab0.coding.game.coderstrikeback
-
+import java.awt.geom.Point2D.distance
 import java.util.*
 import kotlin.math.abs
+import kotlin.math.min
 
-object Wood1 {
+fun main(args: Array<String>) {
+  Bronze1.solve()
+}
+
+object Bronze1 {
   var boosted = false
 
   var tick = 0
@@ -33,17 +37,27 @@ object Wood1 {
       val opponentX = input.nextInt()
       val opponentY = input.nextInt()
 
+      val targetX = nextCheckpointX
+      val targetY = nextCheckpointY
+
       act(
-          nextCheckpointX,
-          nextCheckpointY,
-          thrust(currentX, currentY, nextCheckpointAngle),
+          targetX,
+          targetY,
+          thrust(currentX, currentY, nextCheckpointX, nextCheckpointY, nextCheckpointAngle),
           shouldBoost(nextCheckpointDist, nextCheckpointAngle)
       )
     }
   }
 
-  fun thrust(currentX: Int, currentY: Int, nextCheckpointAngle: Int): Int {
-    return if (nextCheckpointAngle > 90f || nextCheckpointAngle < -90f) 0 else 100
+  fun thrust(currentX: Int, currentY: Int, nextCheckpointX: Int, nextCheckpointY: Int, nextCheckpointAngle: Int): Int {
+    return when {
+      nextCheckpointAngle > 90f || nextCheckpointAngle < -90f -> 0
+      else -> min(
+          100.0,
+          distance(currentX.toDouble(), currentY.toDouble(), nextCheckpointX.toDouble(), nextCheckpointY.toDouble())
+      ).toInt()
+    }
+
   }
 
   /**
@@ -64,5 +78,6 @@ object Wood1 {
 
     println("$targetX $targetY $thrustAction")
   }
+
 
 }
