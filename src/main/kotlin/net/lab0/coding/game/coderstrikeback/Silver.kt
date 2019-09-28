@@ -3,6 +3,7 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -35,6 +36,10 @@ object Silver {
     operator fun minus(vec: Vec) = Vec(this.x - vec.x, this.y - vec.y)
 
     operator fun times(scalar: Int) = Vec(scalar * this.x, scalar * this.y)
+
+    operator fun times(scalar: Double) = Vec((scalar * this.x).toInt(), (scalar * this.y).toInt())
+
+    operator fun div(scalar: Double) = Vec((this.x / scalar).toInt(), (this.y / scalar).toInt())
 
     infix fun dot(vec: Vec) = this.x * vec.x + this.y * vec.y
 
@@ -71,22 +76,25 @@ object Silver {
       internalCurrent = position
     }
 
+    val computedTargetPosition get() = computedTargetVector + me.current
+
     val computedTargetVector: Vec
       get() {
-        // the aiming position
-        val targetVector = me.rawTargetVector
         // compensate for the momentum
-        val approachAngle = me.speed.angleTo(targetVector)
+        val approachAngle = me.speed.angleTo(me.rawTargetVector)
         val effectiveApproachAngle = when {
           abs(approachAngle) >= PI / 2 -> PI - approachAngle
           else -> approachAngle
         }
-        return targetVector.rotate(effectiveApproachAngle)
+
+        return me.rawTargetVector.rotate(effectiveApproachAngle)
       }
     /**
      * Aiming straight to the the center of the checkpoint
      */
     val rawTargetVector: Vec get() = nextCheckpoint - current
+
+    val rawTargetPosition: Vec get() = me.current + rawTargetVector
 
     /**
      * The current position of the player
@@ -150,7 +158,17 @@ object Silver {
     return if (me.speed.norm() < 10) {
       nextCheckpoint
     } else {
-      me.computedTargetVector + me.current
+
+      // the closer to a target, the more compensation to use
+      fun blend(distance: Double) = if (distance < 600) 1.0 else 600 / distance
+
+      val rawPosition = me.rawTargetVector + me.current
+
+      val distanceToNextCheckpoint = (me.current - nextCheckpoint).norm() - 600
+
+      val blendCoefficient = blend(distanceToNextCheckpoint)
+      debug("Blend coef: $blendCoefficient")
+      return (me.computedTargetPosition * blendCoefficient) + (rawPosition * (1 - blendCoefficient))
     }
   }
 
@@ -159,16 +177,16 @@ object Silver {
   }
 
   private fun thrust(): Int {
-    return if (abs(nextCheckpointAngle) >= PI / 2) {
-      0
+    val coef =  if (abs(nextCheckpointAngle) >= PI / 2) {
+      0.0
     } else {
-      debug("Next position: ${me.estimatedNextPosition(1)}, ${me.estimatedNextPosition(2)}")
       when {
-        me.canReachTheNextCheckpoint(1) -> 0
-        me.canReachTheNextCheckpoint(2) -> 25
-        else -> 100
+        abs(nextCheckpointAngle) >= PI / 4 -> abs(nextCheckpointAngle) * -4 / PI + 2
+        else -> 1.0
       }
     }
+
+    return (100 * coef).toInt()
   }
 
   /**
@@ -181,7 +199,7 @@ object Silver {
   private fun shouldShield(): Boolean {
     val nextMe = me.estimatedNextPosition()
     val nextOther = other.estimatedNextPosition()
-    val willTouch = (nextMe - nextOther).norm() <= 2 * podRadius
+    val willTouch = (nextMe - nextOther).norm() <= 2 * podRadius * 1.02
     val conflictsWithDirection = (me.rawTargetVector dot other.speed) < 0
     val goingInTheRightDirection = me.speed dot me.computedTargetVector > 0
 
