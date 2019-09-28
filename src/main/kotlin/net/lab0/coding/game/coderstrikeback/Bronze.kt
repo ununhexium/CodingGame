@@ -3,11 +3,7 @@ import java.util.*
 import kotlin.math.abs
 import kotlin.math.min
 
-fun main(args: Array<String>) {
-  Bronze1.solve()
-}
-
-object Bronze1 {
+object Bronze {
   var boosted = false
 
   var tick = 0
@@ -54,7 +50,12 @@ object Bronze1 {
       nextCheckpointAngle > 90f || nextCheckpointAngle < -90f -> 0
       else -> min(
           100.0,
-          distance(currentX.toDouble(), currentY.toDouble(), nextCheckpointX.toDouble(), nextCheckpointY.toDouble())
+          distance(
+              currentX.toDouble(),
+              currentY.toDouble(),
+              nextCheckpointX.toDouble(),
+              nextCheckpointY.toDouble()
+          ) / 10
       ).toInt()
     }
 

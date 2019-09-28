@@ -1,6 +1,6 @@
 package net.lab0.coding.game.xmasrush
 
-import Tile
+import Xmas.Tile
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DynamicTest
 import org.junit.jupiter.api.Test

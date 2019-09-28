@@ -1,24 +1,24 @@
 package net.lab0.coding.game.xmasrush
 
-import Board
-import Direction.DOWN
-import Direction.LEFT
-import Direction.RIGHT
-import Direction.UP
-import Game
-import Item
-import Player
-import PlayerId
-import PlayerId.IT
-import PlayerId.ME
-import Position
-import Push
-import Quest
-import QuestBook
-import TileWithPositionLike
-import TurnType
-import X
-import asDirections
+import Xmas.Board
+import Xmas.Direction.DOWN
+import Xmas.Direction.LEFT
+import Xmas.Direction.RIGHT
+import Xmas.Direction.UP
+import Xmas.Game
+import Xmas.Item
+import Xmas.Player
+import Xmas.PlayerId
+import Xmas.PlayerId.IT
+import Xmas.PlayerId.ME
+import Xmas.Position
+import Xmas.Push
+import Xmas.Quest
+import Xmas.QuestBook
+import Xmas.TileWithPositionLike
+import Xmas.TurnType
+import Xmas.X
+import Xmas.asDirections
 import org.assertj.core.api.Assertions.assertThat
 import org.funktionale.currying.curried
 import org.funktionale.currying.uncurried
@@ -27,8 +27,8 @@ import org.junit.jupiter.api.DynamicTest.dynamicTest
 import org.junit.jupiter.api.RepeatedTest
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestFactory
-import pick
-import pickOne
+import Xmas.pick
+import Xmas.pickOne
 
 internal class GameTest {
   @TestFactory
@@ -42,8 +42,8 @@ internal class GameTest {
 
         game.board.getEdgeTiles().filter {
           it.asPosition() != position
-        }.pickOne().item = Item("Trick", IT)
-        game.board[position].item = Item("A", ME)
+        }.pickOne().item = Xmas.Item("Trick", Xmas.PlayerId.IT)
+        game.board[position].item = Xmas.Item("A", ME)
 
         // when
         val itemsOnEdges: List<TileWithPositionLike> = game.getAnyQuestItemOnTheEdge(PlayerId.ME)

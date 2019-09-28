@@ -1,18 +1,18 @@
 package net.lab0.coding.game.xmasrush
 
-import Board
-import Direction.DOWN
-import Direction.LEFT
-import Direction.RIGHT
-import Direction.UP
-import Item
-import PlayerId.ME
-import Position
-import PositionLike
-import Quest
-import Tile
-import TileWithPositionLike
-import X
+import Xmas.Board
+import Xmas.Direction.DOWN
+import Xmas.Direction.LEFT
+import Xmas.Direction.RIGHT
+import Xmas.Direction.UP
+import Xmas.Item
+import Xmas.PlayerId.ME
+import Xmas.Position
+import Xmas.PositionLike
+import Xmas.Quest
+import Xmas.Tile
+import Xmas.TileWithPositionLike
+import Xmas.X
 import net.lab0.coding.game.xmasrush.GameTest.GameBuilder
 import net.lab0.coding.game.xmasrush.Helpers.asciiGridToTiles
 import net.lab0.coding.game.xmasrush.Helpers.asciiToSelection
@@ -35,16 +35,16 @@ internal class BoardTest {
       }
     }
 
-    val pushTile = Tile(false, false, false, false)
+    val pushTile = Xmas.Tile(false, false, false, false)
 
     val xMark = 'X'
   }
 
   @Test
   fun `read a 4x4 grid of tiles`() {
-    val board = Board(standard)
+    val board = Xmas.Board(standard)
     assertThat(board.grid[0]).isEqualTo(
-        listOf(Tile("0000"), Tile("0001"), Tile("0010"), Tile("0011"))
+        listOf(Xmas.Tile("0000"), Xmas.Tile("0001"), Xmas.Tile("0010"), Tile("0011"))
     )
     assertThat(board.grid[3][3]).isEqualTo(Tile("1111"))
   }
@@ -201,7 +201,7 @@ internal class BoardTest {
   }
 
   val tester = { input: String, coordinates: String, code: Char, position: Position ->
-    val board = Board(Helpers.asciiGridToTiles(input))
+    val board = Board(asciiGridToTiles(input))
     val selection = asciiToSelection(board, coordinates, code)
     println("Selection:")
     println(showSelection(coordinates, code))

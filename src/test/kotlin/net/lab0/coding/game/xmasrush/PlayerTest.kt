@@ -1,10 +1,10 @@
 package net.lab0.coding.game.xmasrush
 
-import Direction.DOWN
-import Direction.LEFT
-import Direction.RIGHT
-import Direction.UP
-import X
+import Xmas.Direction.DOWN
+import Xmas.Direction.LEFT
+import Xmas.Direction.RIGHT
+import Xmas.Direction.UP
+import Xmas.X
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 

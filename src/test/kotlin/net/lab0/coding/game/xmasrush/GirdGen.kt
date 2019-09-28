@@ -1,6 +1,6 @@
 package net.lab0.coding.game.xmasrush
 
-import pickOne
+import Xmas.pickOne
 
 fun main(args: Array<String>) {
   val sources = " ╷╵╴╶┘└┐┌│─┬┴├┤┼"

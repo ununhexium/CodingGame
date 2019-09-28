@@ -1,22 +1,22 @@
 package net.lab0.coding.game.xmasrush
 
-import Board
-import Direction.DOWN
-import Direction.LEFT
-import Direction.RIGHT
-import Direction.UP
-import Tile
-import TileBuilder
-import TileWithPositionLike
-import X
-import pickOne
+import Xmas.Board
+import Xmas.Direction.DOWN
+import Xmas.Direction.LEFT
+import Xmas.Direction.RIGHT
+import Xmas.Direction.UP
+import Xmas.Tile
+import Xmas.TileBuilder
+import Xmas.TileWithPositionLike
+import Xmas.X
+import Xmas.pickOne
 
 object Helpers {
 
-  fun asciiGridToTiles(grid: String): List<List<Tile>> =
+  fun asciiGridToTiles(grid: String): List<List<Xmas.Tile>> =
       grid.split("\n").map { row ->
         row.map {
-          with(TileBuilder()) {
+          with(Xmas.TileBuilder()) {
             when (it) {
               ' ' -> this
               '.' -> this
@@ -41,7 +41,7 @@ object Helpers {
         }
       }
 
-  fun asciiToSelection(board: Board, grid: String, selection: Char): Set<TileWithPositionLike> =
+  fun asciiToSelection(board: Xmas.Board, grid: String, selection: Char): Set<Xmas.TileWithPositionLike> =
       with(mutableListOf<TileWithPositionLike>()) {
         grid.split("\n").mapIndexed { rowIdx, row ->
           row.mapIndexed { colIdx, char ->
