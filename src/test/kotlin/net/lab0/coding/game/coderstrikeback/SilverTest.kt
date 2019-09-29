@@ -1,6 +1,5 @@
 package net.lab0.coding.game.coderstrikeback
 
-import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 import Silver.Vec
 import org.assertj.core.api.Assertions.assertThat

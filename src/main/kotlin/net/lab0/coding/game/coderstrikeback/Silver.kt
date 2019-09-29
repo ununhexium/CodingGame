@@ -212,7 +212,6 @@ object Silver {
     return shouldShield
   }
 
-
   private fun parseInput(input: Scanner) {
     me.pushPosition(
         Vec(
