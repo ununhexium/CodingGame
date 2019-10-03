@@ -8,7 +8,7 @@ internal class RawInitialisationOutputTest {
   @Test
   fun `can output nominal initialization block`() {
     val i = RawInitialisationOutput(
-        1, Checkpoint(4, 5), Checkpoint(6, 7)
+        1, Checkpoint(4, 5, 0), Checkpoint(6, 7, 1)
     )
 
     assertThat(i.getStdout()).isEqualTo(

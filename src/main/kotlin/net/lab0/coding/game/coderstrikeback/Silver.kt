@@ -7,16 +7,25 @@ import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-fun main(args: Array<String>) {
-  if (System.getProperty("user.name") == "uuh") {
-    println("Angle [1 1] [1 -1]: ${Silver.Vec(1, 1).angleTo(Silver.Vec(1, -1))}")
-    println("Angle [1 -1] [1 1]: ${Silver.Vec(1, -1).angleTo(Silver.Vec(1, 1))}")
-  } else {
-    Silver.solve()
-  }
-}
-
 object Silver {
+
+  fun solve() {
+    val input = Scanner(System.`in`)
+
+    // game loop
+    while (true) {
+      parseInput(input)
+
+      preCompute()
+
+      act(
+          computeTarget(),
+          thrust(),
+          shouldBoost(),
+          shouldShield()
+      )
+    }
+  }
 
   // constants
   val maxLaps = 3 // guessing that
@@ -134,25 +143,6 @@ object Silver {
   var tick = 0
 
   val checkpoints = mutableListOf<Vec>()
-
-  // SOLVE
-  fun solve() {
-    val input = Scanner(System.`in`)
-
-    // game loop
-    while (true) {
-      parseInput(input)
-
-      preCompute()
-
-      act(
-          computeTarget(),
-          thrust(),
-          shouldBoost(),
-          shouldShield()
-      )
-    }
-  }
 
   private fun computeTarget(): Vec {
     return if (me.speed.norm() < 10) {

@@ -1,15 +1,14 @@
 package net.lab0.coding.game.simulator.codersstrikesback
 
 import org.assertj.core.api.Assertions.assertThat
-import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
 
-internal class CodersStrikesBackTest {
+internal class CodersStrikeBackTest {
   @Test
   fun `can generate a map`() {
-    val game = CodersStrikesBack()
+    val game = CodersStrikeBack()
 
-    val init = game.initialise()
+    val (init, out) = game.initialize()
 
     assertThat(init.laps).isGreaterThanOrEqualTo(1)
     assertThat(init.checkpoints).hasSize(init.checkpointCount)

@@ -4,7 +4,7 @@ interface Game<INIT, IN, OUT> where IN : Input<IN>, OUT : Output, INIT : Output 
   /**
    * Initializes the game and output the initial situation
    */
-  fun initialise(): INIT
+  fun initialize(): Pair<INIT, OUT>
 
   /**
    * Computes all the required operations for a single tick

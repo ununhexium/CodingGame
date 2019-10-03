@@ -7,10 +7,10 @@ internal class RawOutputBlockTest {
   @Test
   fun `can output nominal pods situation block`() {
     val o = RawOutputBlock(
-        RawPodSituation(1, 2, 3, 4, 5, 6),
-        RawPodSituation(7, 8, 9, 10, 11, 12),
-        RawPodSituation(13, 14, 15, 16, 17, 18),
-        RawPodSituation(19, 20, 21, 22, 23, 24)
+        PodSnapshot(1, 2, 3, 4, 5, 6),
+        PodSnapshot(7, 8, 9, 10, 11, 12),
+        PodSnapshot(13, 14, 15, 16, 17, 18),
+        PodSnapshot(19, 20, 21, 22, 23, 24)
     )
 
     assertThat(o.getStdout()).isEqualTo(

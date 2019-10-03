@@ -3,10 +3,8 @@ package net.lab0.coding.game.simulator.codersstrikesback
 import net.lab0.coding.game.simulator.api.Output
 
 data class RawOutputBlock(
-    val myPod1: RawPodSituation,
-    val myPod2: RawPodSituation,
-    val itsPod1: RawPodSituation,
-    val itsPod2: RawPodSituation
+    val myPods: List<PodSnapshot>,
+    val itsPods: List<PodSnapshot>
 ) : Output {
   /**
    * Input for one game turn
@@ -15,10 +13,8 @@ data class RawOutputBlock(
    */
   override fun getStdout(): String {
     return """
-      |${myPod1.getStdout()}
-      |${myPod2.getStdout()}
-      |${itsPod1.getStdout()}
-      |${itsPod2.getStdout()}
+      |${myPods.joinToString("\n") { it.getStdout() }}
+      |${itsPods.joinToString("\n") { it.getStdout() }}
     """.trimMargin()
   }
 }
