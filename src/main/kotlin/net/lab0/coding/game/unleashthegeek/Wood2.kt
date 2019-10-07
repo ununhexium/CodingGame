@@ -33,6 +33,7 @@ object Wood2 {
   data class Position(val x: Int, val y: Int) {
     companion object {
       fun random() = Position(random.nextInt(arena.width), random.nextInt(arena.height))
+      fun randomNotInBase() = Position(1 + random.nextInt(arena.width - 1), random.nextInt(arena.height))
     }
 
     override fun toString() = "$x $y"
@@ -111,7 +112,7 @@ object Wood2 {
           } else {
             val lo = lastOrder
             when (lo) {
-              is Dig -> if (arena[lo.pos].hole  == true) Dig(Position.random()) else lastOrder
+              is Dig -> if (arena[lo.pos].hole == true) Dig(Position.random()) else lastOrder
               is Move -> if (pos.x == 0) Dig(Position.random()) else lastOrder
               else -> Dig(Position.random())
             }
