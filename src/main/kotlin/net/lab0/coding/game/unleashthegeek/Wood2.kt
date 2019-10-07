@@ -1,4 +1,7 @@
 import java.util.*
+import Wood2.Action.*
+import Wood2.Objective.*
+import kotlin.math.abs
 
 fun main(vararg args: String) {
   Wood2.solve()
@@ -6,29 +9,39 @@ fun main(vararg args: String) {
 
 object Wood2 {
   private val scanner = Scanner(System.`in`)
+  private val random = Random()
+  private lateinit var internalArena: Arena
+  private val arena get() = internalArena
   /**
    * Deliver more ore to hq (left side of the map) than your opponent. Use radars to find ore but beware of traps!
    **/
   fun solve() {
     val input = scanner
-    val (width, height) = initParser(input)
-    terrain = Terrain(width, height)
+    internalArena = initParser(input)
 
     // game loop
     while (true) {
       loopParser(input)
-      assignMinion(getOrders())
+      val orders = getObjectives()
+      assignMinion(orders)
       act()
     }
   }
 
   // structures
 
-  class Position(val x: Int, val y: Int) {
+  data class Position(val x: Int, val y: Int) {
+    companion object {
+      fun random() = Position(random.nextInt(arena.width), random.nextInt(arena.height))
+    }
+
     override fun toString() = "$x $y"
     fun offset(x: Int, y: Int): Position {
+      // TODO: keep it insie the arena?
       return Position(this.x + x, this.y + y)
     }
+
+    fun distance(pos: Position) = abs(this.x - pos.x) + abs(this.y - pos.y)
   }
 
   data class Cell(
@@ -67,9 +80,48 @@ object Wood2 {
       override val id: Int,
       override val pos: Position,
       val load: Type,
-      var orders: LinkedList<Action> = LinkedList()
+      var objective: Objective? = null,
+      private var lastOrder: Action = Wait()
   ) :
-      Robot
+      Robot {
+    /**
+     * Pops the previous order if it was reached
+     */
+//    fun clearedOrders(newState: MyRobot): MyRobot {
+//      val firstOrder = todo.peek()
+//      debug("First order is $firstOrder")
+//      return this.copy(
+//          todo = when (firstOrder) {
+//            is Action.Wait -> todo.popSelf()
+//            is Move -> if (newState.pos == firstOrder.pos) todo.popSelf() else todo
+//            // TODO: do we see the holes out of the radar coverage? If yes, hole must not be nullable
+//            // TODO: check that we are near the position, not exactly on top
+//            is Action.Dig -> if (newState.pos.distance(firstOrder.pos) <= 1 && arena[newState.pos].hole == true) todo.popSelf() else todo
+//            is RequestRadar -> if (newState.load == Type.RADAR) todo.popSelf() else todo
+//            is RequestTrap -> if (newState.load == Type.TRAP) todo.popSelf() else todo
+//          }
+//      )
+//    }
+
+    fun getAction(): Action {
+      lastOrder = when (objective) {
+        STOCHASTIC_DIG ->
+          if (load == Type.ORE) {
+            Move(pos.copy(x = 0))
+          } else {
+            val lo = lastOrder
+            when (lo) {
+              is Dig -> if (arena[lo.pos].hole  == true) Dig(Position.random()) else lastOrder
+              is Move -> if (pos.x == 0) Dig(Position.random()) else lastOrder
+              else -> Dig(Position.random())
+            }
+          }
+        else -> Wait()
+      }
+
+      return lastOrder
+    }
+  }
 
   data class ItsRobot(override val id: Int, override val pos: Position, val load: Type? = null) : Robot
   data class Radar(override val id: Int, override val pos: Position) : Entity
@@ -79,32 +131,37 @@ object Wood2 {
 
   class PowerUps(var radarCoolDown: Int, var trapCooldown: Int)
 
-  abstract class Action {
+  enum class Objective {
+    STOCHASTIC_DIG
+  }
+
+  sealed class Action {
     abstract val printed: String
     override fun toString() = printed
+
+    class Wait : Action() {
+      override val printed = "WAIT"
+    }
+
+    class Move(val pos: Position) : Action() {
+      override val printed = "MOVE $pos"
+    }
+
+    class Dig(val pos: Position) : Action() {
+      override val printed = "DIG $pos"
+    }
+
+    class RequestRadar : Action() {
+      override val printed = "REQUEST RADAR"
+    }
+
+    class RequestTrap : Action() {
+      override val printed = "REQUEST TRAP"
+    }
   }
 
-  class Wait : Action() {
-    override val printed = "WAIT"
-  }
 
-  class Move(private val pos: Position) : Action() {
-    override val printed = "MOVE $pos"
-  }
-
-  class Dig(private val pos: Position) : Action() {
-    override val printed = "DIG $pos"
-  }
-
-  class RequestRadar : Action() {
-    override val printed = "REQUEST RADAR"
-  }
-
-  class RequestTrap : Action() {
-    override val printed = "REQUEST TRAP"
-  }
-
-  data class Terrain(val width: Int, val height: Int) {
+  data class Arena(val width: Int, val height: Int) {
     val cells = (0 until height).map { y -> (0 until width).map { x -> Cell(Position(x, y), null, null) } }
 
     // moving entities as map<id,history>
@@ -124,20 +181,21 @@ object Wood2 {
       debug("Update $entity")
       when (entity) {
         is MyRobot -> {
-          entity as MyRobot
           val myRobots = myRobots.getOrPut(entity.id) { mutableListOf() }
           val existingRobot = myRobots.lastOrNull()
           if (existingRobot != null) {
-            debug("Update $entity")
-            myRobots.add(existingRobot.copy(pos = entity.pos, load = entity.load, orders = existingRobot.orders))
+            myRobots
+                .add(
+                    existingRobot.copy(
+                        pos = entity.pos,
+                        load = entity.load
+                    )
+                )
           } else {
-            debug("Add new $entity")
             myRobots.add(entity)
           }
-
         }
         is ItsRobot -> {
-          entity as ItsRobot
           val existingRobots = itsRobots.getOrPut(entity.id) { mutableListOf() }
           val existingRobot = existingRobots.lastOrNull()
           // make a copy to preserve the existing attributes
@@ -157,18 +215,17 @@ object Wood2 {
 
     fun getLazyRobots() = myRobots
         .map { it.value.last() }
-        .filter { it.orders.isEmpty() || it.orders.all { it is Wait } }
+        .filter { it.objective == null }
   }
 
   // game data
-  lateinit var terrain: Terrain
   val scores = Scores(0, 0)
   val myPowerUps = PowerUps(0, 0)
 
-  private fun initParser(input: Scanner): Pair<Int, Int> {
+  private fun initParser(input: Scanner): Arena {
     val width = input.nextInt()
     val height = input.nextInt() // size of the map
-    return Pair(width, height)
+    return Arena(width, height)
   }
 
   private fun loopParser(input: Scanner) {
@@ -176,12 +233,12 @@ object Wood2 {
     scores.mine = input.nextInt()
     scores.its = input.nextInt()
 
-    (0 until terrain.height).map { y ->
-      (0 until terrain.width).map { x ->
+    (0 until arena.height).map { y ->
+      (0 until arena.width).map { x ->
         val ore = input.next() // amount of ore or "?" if unknown
         val hole = input.nextInt() // 1 if cell has a hole
 
-        val cell = terrain[x, y]
+        val cell = arena[x, y]
         cell.ore = when (ore) {
           "?" -> null
           else -> ore.toInt()
@@ -206,7 +263,7 @@ object Wood2 {
       // if this entity is a robot, the item it is carrying (-1 for NONE, 2 for RADAR, 3 for TRAP, 4 for ORE)
       val item = input.nextInt().toType()
 
-      terrain.updateEntity(
+      arena.updateEntity(
           when (typeId.toType()) {
             Type.MINE -> MyRobot(id, pos, item)
             Type.ITS -> ItsRobot(id, pos)
@@ -218,60 +275,59 @@ object Wood2 {
     }
   }
 
-  private fun assignMinion(orders: MutableList<LinkedList<Action>>) {
-    val lazyRobots = terrain.getLazyRobots()
+  private fun assignMinion(orders: List<Objective>) {
+    val lazyRobots = arena.getLazyRobots()
     debug("Got ${orders.size} orders and ${lazyRobots.size} available robots")
     lazyRobots.zip(orders).forEach {
-      it.first.orders = it.second
+      it.first.objective = it.second
     }
   }
 
-  private fun getOrders(): MutableList<LinkedList<Action>> {
-    val actions = mutableListOf<LinkedList<Action>>()
+  private fun getObjectives(): List<Objective> {
 
     // find something to mine
 
-    val knowOres = terrain.getKnownOres()
-    when (knowOres.size) {
-      0 -> {
-        debug("No ore found, dowsing and random pick")
-        val prospectingTargets = dowser()
-        val target = prospectingTargets.first()
-        // TODO test if radar is available
-        actions.add(
-            actionList() + RequestRadar() + Dig(target)
-        )
-        val targets = listOf(
-            target.offset(-2, -2),
-            target.offset(2, -2),
-            target.offset(-2, 2),
-            target.offset(2, 2)
-        )
-        actions.addAll(
-            targets.map {
-              actionList() + Dig(it)
-            }
-        )
-      }
-      in 1..4 -> {
-        debug("${knowOres.size} ore found, dowsing ahead")
-        val prospectingTargets = dowser()
-        val target = prospectingTargets.first()
-        // TODO test if radar is available
-        actions.add(
-            actionList() + RequestRadar() + Move(target) + Dig(target)
-        )
-      }
-      else ->
-        // get the ore
-        actions.addAll(
-            knowOres.take(5).map {
-              actionList() + Dig(it.pos)
-            }
-        )
-    }
+//    val knowOres = arena.getKnownOres()
+//    when (knowOres.size) {
+//      0 -> {
+//        debug("No ore found, dowsing and random pick")
+//        val prospectingTargets = dowser(arena)
+//        val target = prospectingTargets.first()
+//        // TODO test if radar is available
+//        actions.add(
+//            actionList() + RequestRadar() + Dig(target)
+//        )
+//        val targets = listOf(
+//            target.offset(-2, -2),
+//            target.offset(2, -2),
+//            target.offset(-2, 2),
+//            target.offset(2, 2)
+//        )
+//        actions.addAll(
+//            targets.map {
+//              actionList() + Dig(it)
+//            }
+//        )
+//      }
+//      in 1..4 -> {
+//        debug("${knowOres.size} ore found, dowsing ahead")
+//        val prospectingTargets = dowser(arena)
+//        val target = prospectingTargets.first()
+//        // TODO test if radar is available
+//        actions.add(
+//            actionList() + RequestRadar() + Move(target) + Dig(target)
+//        )
+//      }
+//      else ->
+//        // get the ore
+//        actions.addAll(
+//            knowOres.take(5).map {
+//              actionList() + Dig(it.pos)
+//            }
+//        )
+//    }
 
-    return actions
+    return Array(5) { STOCHASTIC_DIG }.toList()
   }
 
   /**
@@ -279,27 +335,26 @@ object Wood2 {
    */
   private fun dowser(): List<Position> =
       // wood: constants
-      (4 until terrain.width step 4).flatMap { x ->
-        (4 until terrain.height step 4).map { y ->
+      (4 until arena.width step 4).flatMap { x ->
+        (4 until arena.height step 4).map { y ->
           Position(x, y)
         }
       }.filter {
         // TODO: cache radars positions instead of recomputing
-        it !in terrain.radars.map { it.pos }
+        it !in arena.radars.map { it.pos }
       }
 
   fun act() {
-    val act = terrain.myRobots.map {
-      it.value.last().orders.poll() ?: Wait()
+    val act = arena.myRobots.map {
+      it.value.last().getAction()
     }.joinToString("\n") {
       it.printed
     }
-
-    debug(act)
     println(act)
   }
 
   fun actionList() = LinkedList<Action>()
-  operator fun LinkedList<Action>.plus(action: Action): LinkedList<Action> = this.also { add(action) }
+  operator fun LinkedList<Action>.plus(action: Action) = this.also { add(action) }
+  fun LinkedList<Action>.popSelf() = LinkedList(this).also { it.removeFirst() }
   fun debug(vararg message: String) = System.err.println("DBG " + message.joinToString())
 }
