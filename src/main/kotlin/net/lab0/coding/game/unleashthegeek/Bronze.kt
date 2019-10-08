@@ -1,13 +1,11 @@
+package net.lab0.coding.game.unleashthegeek
+
 import java.util.*
-import Bronze2.Action.*
-import Bronze2.Type.*
+import net.lab0.coding.game.unleashthegeek.Bronze.Action.*
+import net.lab0.coding.game.unleashthegeek.Bronze.Type.*
 import kotlin.math.abs
 
-fun main(vararg args: String) {
-  Bronze2.solve()
-}
-
-object Bronze2 {
+object Bronze {
   private val scanner = Scanner(System.`in`)
   private val random = Random()
   private lateinit var internalArena: Arena

@@ -177,7 +177,6 @@ object Wood2 {
 
     // TODO: remove non existing entities
     fun updateEntity(entity: Entity) {
-      debug("Update $entity")
       when (entity) {
         is MyRobot -> {
           val myRobots = myRobots.getOrPut(entity.id) { mutableListOf() }
@@ -199,10 +198,8 @@ object Wood2 {
           val existingRobot = existingRobots.lastOrNull()
           // make a copy to preserve the existing attributes
           if (existingRobot != null) {
-            debug("Update $entity")
             existingRobot.copy(pos = entity.pos)
           } else {
-            debug("Add new $entity")
             existingRobots.add(entity)
           }
         }
@@ -250,8 +247,6 @@ object Wood2 {
     myPowerUps.radarCoolDown = input.nextInt() // turns left until a new radar can be requested
     myPowerUps.trapCooldown = input.nextInt() // turns left until a new trap can be requested
 
-    debug("Receiving $entityCount entities")
-
     (0 until entityCount).forEach { _ ->
       val id = input.nextInt() // unique id of the entity
       val typeId = input.nextInt() // 0 for your robot, 1 for other robot, 2 for radar, 3 for trap
@@ -276,7 +271,6 @@ object Wood2 {
 
   private fun assignMinion(orders: List<Objective>) {
     val lazyRobots = arena.getLazyRobots()
-    debug("Got ${orders.size} orders and ${lazyRobots.size} available robots")
     lazyRobots.zip(orders).forEach {
       it.first.objective = it.second
     }
