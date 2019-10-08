@@ -1,11 +1,9 @@
-import java.util.*
-import Wood2.Action.*
-import Wood2.Objective.*
-import kotlin.math.abs
+package net.lab0.coding.game.unleashthegeek
 
-fun main(vararg args: String) {
-  Wood2.solve()
-}
+import java.util.*
+import net.lab0.coding.game.unleashthegeek.Wood2.Action.*
+import net.lab0.coding.game.unleashthegeek.Wood2.Objective.*
+import kotlin.math.abs
 
 object Wood2 {
   private val scanner = Scanner(System.`in`)
@@ -106,7 +104,7 @@ object Wood2 {
 
     fun getAction(): Action {
       lastOrder = when (objective) {
-        STOCHASTIC_DIG ->
+        Objective.STOCHASTIC_DIG ->
           if (load == Type.ORE) {
             Move(pos.copy(x = 0))
           } else {

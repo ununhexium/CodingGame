@@ -1,3 +1,5 @@
+package net.lab0.coding.game.coderstrikeback
+
 import java.awt.geom.Point2D.distance
 import java.util.*
 import kotlin.math.abs
