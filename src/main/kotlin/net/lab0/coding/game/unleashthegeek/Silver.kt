@@ -68,18 +68,25 @@ object Silver {
 
     fun getBestDiggingSpot(): Dig {
       val usableOre = arena.getSafeOres()
+      val closestCells = getClosestCells()
       return if (usableOre.isEmpty()) {
         if (arena.step == 1) {
           Dig(pos.copy(x = 4))
         } else {
           Dig(
-              getClosestCells()
-                  .filter { !it.shouldNotDig && it.pos.x == this.pos.x + 1 } // keep prospecting to the right
+              closestCells
+                  // keep prospecting to the right
+                  .filter {
+                    !it.shouldNotDig &&
+                        // guestimate that have to prospect to the right
+                        // TODO: have to prospect to the closest cell to the right(-ish) of the radar coverage
+                        it.pos.x > (arena.radars.maxBy { radar -> radar.x }?.x ?: 4)
+                  }
                   .map { it.pos }
                   .notTargeted()
-                  .firstOrNull() ?:
+                  .firstOrNull { it in pos.inRadius(4, arena) } ?:
               // if ran out of options to the right
-              getClosestCells()
+              closestCells
                   .filter { !it.shouldNotDig }
                   .map { it.pos }
                   .notTargeted()
@@ -87,9 +94,12 @@ object Silver {
           )
         }
       } else {
-        val closest = usableOre.sortedBy { it.pos.distance(pos) }.map { it.pos }
+        val closest = usableOre
+            .sortedBy { it.pos.distance(pos) }
+            .sortedBy { it.pos.x } // favour things that are on the way back home
+            .map { it.pos }
         Dig(
-            closest.getOrElse(0) { getClosestCells().filter { it.hole == false }.map { it.pos }.notTargeted().first() }
+            closest.getOrElse(0) { closestCells.filter { it.hole == false }.map { it.pos }.notTargeted().first() }
         )
       }
     }
@@ -170,7 +180,7 @@ object Silver {
             val cell = arena[lo.pos]
             if (load == RADAR) {
               if (cell.trap || cell.radar) getBestRadarSpot() else lo
-            } else Move(pos.toBase())
+            } else getBestDiggingSpot()
           }
           is Move -> if (atBase) {
             if (myPowerUps.radar.available) {
@@ -181,7 +191,7 @@ object Silver {
             }
           } else lo
           is RequestRadar -> getBestRadarSpot()
-          else -> Move(pos.toBase())
+          else -> Move(toBase)
         }
       }
     }
@@ -192,7 +202,7 @@ object Silver {
   class PassiveDigger : Strategy {
     override fun nextOrder(robot: MyRobot) = with(robot) {
       if (load == ORE) {
-        Move(pos.toBase())
+        Move(toBase)
       } else when (val lo = internalLastOrder) {
         is Dig -> if (arena[lo.pos].shouldNotDig) {
           getBestDiggingSpot()
@@ -210,7 +220,7 @@ object Silver {
   class AggressiveDigger : Strategy {
     override fun nextOrder(robot: MyRobot) = with(robot) {
       if (load == ORE) {
-        Move(pos.toBase())
+        Move(toBase)
       } else when (val lo = internalLastOrder) {
         is Dig -> if (arena[lo.pos].shouldNotDig) {
           getBestDiggingSpot()
@@ -302,9 +312,10 @@ object Silver {
         cache.getOrPut(step) {
           yAxis.map { y ->
             xAxis.map { x ->
-              Position(x, y).inRadius(1, this).map { pos ->
-                if (cells[pos.y][pos.x].trap) 5 else if (cells[pos.y][pos.x].danger) 1 else 0
-              }.sum()
+              val here = Position(x, y)
+              here.inRadius(1, this).map { pos ->
+                if (cells[pos].danger) 1 else 0
+              }.sum() + if (cells[here].trap) 5 else 0
             }
           }.also {
             debug(
@@ -357,10 +368,16 @@ object Silver {
       val typeId = input.nextInt() // 0 for your robot, 1 for other robot, 2 for radar, 3 for trap
       val x = input.nextInt()
       val y = input.nextInt() // position of the entity
-      val pos = Position(x, y)
 
       // if this entity is a robot, the item it is carrying (-1 for NONE, 2 for RADAR, 3 for TRAP, 4 for ORE)
       val item = input.nextInt().toType()
+
+      val pos = if (x < 0 || y < 0) {
+        // item was destroyed
+        Position(0, 0)
+      } else {
+        Position(x, y)
+      }
 
       arena.updateEntity(
           when (typeId.toType()) {
@@ -408,20 +425,24 @@ object Silver {
    */
   private fun idealRadarLocations(): List<Position> =
       listOf(
-          Position(5, 3),
           Position(10, 7),
+          Position(5, 3),
           Position(5, 11),
           Position(15, 3),
           Position(15, 11),
+          Position(10, 0),
+          Position(10, 14),
           Position(20, 7),
           Position(25, 3),
           Position(25, 11),
+          Position(20, 0),
+          Position(20, 14),
           Position(29, 7)
       )
 
   fun act() {
     val act = arena.myRobots.current<MyRobot>().onEach { it.computeAction() }.joinToString("\n") {
-      "${it.action.order} - ${it.strategy}: ${it.action}"
+      "${it.action.order}  ${it.strategy}: ${it.action}"
     }
     println(act)
   }
@@ -468,8 +489,6 @@ object Silver {
   data class Position(val x: Int, val y: Int) {
     override fun toString() = "$x $y"
     fun distance(pos: Position) = abs(this.x - pos.x) + abs(this.y - pos.y)
-    fun isNotBase() = x > 0
-    fun toBase() = this.copy(x = 0)
     fun inRadius(radius: Int, arena: Arena) =
         (-radius..radius).flatMap { y ->
           (-radius..radius).map { x ->
