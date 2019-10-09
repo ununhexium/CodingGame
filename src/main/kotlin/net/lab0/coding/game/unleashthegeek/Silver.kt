@@ -62,9 +62,27 @@ object Silver {
       return internalLastOrder
     }
 
-    fun getBestRadarSpot() = Dig(
-        idealRadarLocations().firstOrNull { pos -> pos !in arena.radars } ?: getBestDiggingSpot().pos
-    )
+    fun getBestRadarSpot(): Dig {
+      val target = idealRadarLocations().firstOrNull { pos -> pos !in arena.radars.map { it.pos } }
+
+      return if (target == null) {
+        getBestDiggingSpot()
+      } else {
+        if (arena.getHeatMap()[target] > 0) {
+          val alternative = target.inRadius(2, arena)
+              .sortedByDescending { it.x }
+              .firstOrNull { arena.getHeatMap()[it] == 0 }
+
+          if (alternative == null) {
+            getBestDiggingSpot()
+          } else {
+            Dig(alternative)
+          }
+        } else {
+          Dig(target)
+        }
+      }
+    }
 
     fun getBestDiggingSpot(): Dig {
       val usableOre = arena.getSafeOres()
@@ -74,19 +92,11 @@ object Silver {
           Dig(pos.copy(x = 4))
         } else {
           Dig(
-              closestCells
-                  // keep prospecting to the right
-                  .filter {
-                    !it.shouldNotDig &&
-                        // guestimate that have to prospect to the right
-                        // TODO: have to prospect to the closest cell to the right(-ish) of the radar coverage
-                        it.pos.x > (arena.radars.maxBy { radar -> radar.x }?.x ?: 4)
-                  }
-                  .map { it.pos }
+              pos
+                  .inRadius(4, arena)
+                  .sortedByDescending { it.x }
                   .notTargeted()
-                  .firstOrNull { it in pos.inRadius(4, arena) } ?:
-              // if ran out of options to the right
-              closestCells
+                  .firstOrNull() ?: closestCells
                   .filter { !it.shouldNotDig }
                   .map { it.pos }
                   .notTargeted()
@@ -167,6 +177,7 @@ object Silver {
 
   interface Strategy {
     fun nextOrder(robot: MyRobot): Action
+    val name:String
     override fun toString(): String
   }
 
@@ -179,8 +190,11 @@ object Silver {
           is Dig -> {
             val cell = arena[lo.pos]
             if (load == RADAR) {
-              if (cell.trap || cell.radar) getBestRadarSpot() else lo
-            } else getBestDiggingSpot()
+              if (arena.getHeatMap()[cell.pos] > 0 || cell.radar) getBestRadarSpot() else lo
+            } else {
+              val bestDig = getBestDiggingSpot()
+              if (bestDig.pos.distance(pos) <= 4) bestDig else Move(toBase)
+            }
           }
           is Move -> if (atBase) {
             if (myPowerUps.radar.available) {
@@ -197,6 +211,7 @@ object Silver {
     }
 
     override fun toString() = "S"
+    override val name = "spotter"
   }
 
   class PassiveDigger : Strategy {
@@ -215,6 +230,7 @@ object Silver {
     }
 
     override fun toString() = "P"
+    override val name = "passiveDigger"
   }
 
   class AggressiveDigger : Strategy {
@@ -234,6 +250,7 @@ object Silver {
     }
 
     override fun toString() = "A"
+    override val name= "aggressiveDigger"
   }
 
   class RobotTracker<R> where R : Robot<R> {
@@ -269,8 +286,8 @@ object Silver {
     val itsRobots = RobotTracker<ItsRobot>()
 
     // my static entities
-    val radars get() = cells.flatten().filter { it.radar }.map { it.pos }
-    val traps get() = cells.flatten().filter { it.trap }
+    val radars = mutableListOf<Radar>()
+    val traps = mutableListOf<Trap>()
 
     operator fun get(x: Int, y: Int) = cells[y][x]
     operator fun get(pos: Position) = cells[pos.y][pos.x]
@@ -287,7 +304,7 @@ object Silver {
       when (entity) {
         is MyRobot -> myRobots.update(entity)
         is ItsRobot -> itsRobots.update(entity)
-        is Radar -> this[entity.pos].radar = true
+        is Radar -> radars.add(entity)
         is Trap -> this[entity.pos].trap = true
       }
     }
@@ -298,9 +315,9 @@ object Silver {
 
     fun getSafeOres(): List<Cell> {
       val knownOres = arena.getKnownOres()
-      val knownTraps = arena.getKnownTraps()
+      val knownTraps = arena.getKnownTraps().map { it.pos }
       val suspectedTraps = arena.getHeatMap()
-      return knownOres.filter { it !in knownTraps }.filter { suspectedTraps[it.pos] == 0 }
+      return knownOres.filter { it.pos !in knownTraps }.filter { suspectedTraps[it.pos] == 0 }
     }
 
     /**
@@ -392,9 +409,17 @@ object Silver {
   }
 
   private fun assignMinion(orders: List<Strategy>) {
-    val robots = arena.myRobots.current<MyRobot>()
-    robots.zip(orders).forEach {
-      it.first.strategy = it.second
+    val robots = arena.myRobots.current<MyRobot>().sortedBy { it.pos.x }
+
+    // if same composition -> do nothing
+    val namedOrders = orders.map { it.name }.toSet()
+    val namedCurrent = robots.map { it.strategy.name }.toSet()
+
+    if(namedOrders != namedCurrent) {
+      debug("Updating order")
+      robots.zip(orders).forEach {
+        it.first.strategy = it.second
+      }
     }
   }
 
@@ -430,14 +455,14 @@ object Silver {
           Position(5, 11),
           Position(15, 3),
           Position(15, 11),
-          Position(10, 0),
-          Position(10, 14),
           Position(20, 7),
           Position(25, 3),
+          Position(10, 0),
+          Position(10, 14),
           Position(25, 11),
+          Position(29, 7),
           Position(20, 0),
-          Position(20, 14),
-          Position(29, 7)
+          Position(20, 14)
       )
 
   fun act() {
