@@ -1,7 +1,8 @@
 package net.lab0.coding.game.coderstrikeback
 
 import org.junit.jupiter.api.Test
-import Silver.Vec
+import csb.Silver.Vec
+import csb.Silver
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.DynamicTest
 import org.junit.jupiter.api.TestFactory
@@ -59,6 +60,6 @@ internal class SilverTest {
 
   @Test
   fun `whyyyyy`() {
-    println(Vec(x=-5735, y=-1074).rotate(-0.8))
+    println(Vec(x = -5735, y = -1074).rotate(-0.8))
   }
 }

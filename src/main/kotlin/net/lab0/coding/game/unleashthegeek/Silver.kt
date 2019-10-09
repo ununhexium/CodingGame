@@ -63,17 +63,27 @@ object Silver {
     }
 
     fun getBestRadarSpot() = Dig(
-        idealRadarLocations().firstOrNull { pos -> pos !in arena.radars } ?: pos.copy(x = 1)
+        idealRadarLocations().firstOrNull { pos -> pos !in arena.radars } ?: getBestDiggingSpot().pos
     )
 
     fun getBestDiggingSpot(): Dig {
       val usableOre = arena.getSafeOres()
       return if (usableOre.isEmpty()) {
-        if (arena.tick == 1) {
-          Dig(pos.copy(x = 8))
+        if (arena.step == 1) {
+          Dig(pos.copy(x = 4))
         } else {
           Dig(
-              getClosestCells().filter { it.hole == false && it.pos.isNotBase() }.map { it.pos }.notTargeted().first()
+              getClosestCells()
+                  .filter { !it.shouldNotDig && it.pos.x == this.pos.x + 1 } // keep prospecting to the right
+                  .map { it.pos }
+                  .notTargeted()
+                  .firstOrNull() ?:
+              // if ran out of options to the right
+              getClosestCells()
+                  .filter { !it.shouldNotDig }
+                  .map { it.pos }
+                  .notTargeted()
+                  .first()
           )
         }
       } else {
@@ -102,9 +112,23 @@ object Silver {
   data class ItsRobot(
       override val id: Int,
       override val pos: Position,
-      override val load: Type? = null
+      override val load: Type = UNKNOWN
   ) : Robot<ItsRobot> {
-    override fun copyAndUpdate(update: ItsRobot) = this.copy(pos = update.pos)
+    override fun copyAndUpdate(update: ItsRobot) = this.copy(
+        pos = update.pos,
+        load = when {
+          pos == update.pos && pos.x == 0 -> DANGER.also { debug("Suspect load from $id at $pos") }
+          /**
+           * Hoping for the best and assuming that it mine and didn't trick me into thinking I mined
+           */
+          pos == update.pos && pos.x != 0 && load == DANGER -> {
+            debug("Suspect danger from $id at $pos")
+            arena[pos].danger = true
+            UNKNOWN
+          }
+          else -> load
+        }
+    )
   }
 
   data class Radar(override val id: Int, override val pos: Position) : Entity
@@ -138,35 +162,37 @@ object Silver {
 
   class Spotter : Strategy {
     override fun nextOrder(robot: MyRobot) = with(robot) {
-      if (load == ORE) {
-        Move(toBase)
-      } else when (val lo = internalLastOrder) {
-        is Dig -> {
-          val cell = arena[lo.pos]
-          if (load == RADAR) {
-            if (cell.trap || cell.radar) getBestRadarSpot() else lo
-          } else Move(pos.toBase())
-        }
-        is Move -> if (atBase) {
-          if (myPowerUps.radar.available) {
-            debug("${robot.id} request radar")
-            RequestRadar()
-          } else {
-            Wait()
+      when {
+        arena.step == 1 -> RequestRadar()
+        load == ORE -> Move(toBase)
+        else -> when (val lo = internalLastOrder) {
+          is Dig -> {
+            val cell = arena[lo.pos]
+            if (load == RADAR) {
+              if (cell.trap || cell.radar) getBestRadarSpot() else lo
+            } else Move(pos.toBase())
           }
-        } else lo
-        is RequestRadar -> getBestRadarSpot()
-        else -> Move(pos.toBase())
+          is Move -> if (atBase) {
+            if (myPowerUps.radar.available) {
+              debug("${robot.id} request radar")
+              RequestRadar()
+            } else {
+              Wait()
+            }
+          } else lo
+          is RequestRadar -> getBestRadarSpot()
+          else -> Move(pos.toBase())
+        }
       }
     }
 
-    override fun toString() = "Spot"
+    override fun toString() = "S"
   }
 
   class PassiveDigger : Strategy {
     override fun nextOrder(robot: MyRobot) = with(robot) {
       if (load == ORE) {
-        Move(toBase)
+        Move(pos.toBase())
       } else when (val lo = internalLastOrder) {
         is Dig -> if (arena[lo.pos].shouldNotDig) {
           getBestDiggingSpot()
@@ -178,7 +204,7 @@ object Silver {
       }
     }
 
-    override fun toString() = "PDig"
+    override fun toString() = "P"
   }
 
   class AggressiveDigger : Strategy {
@@ -186,28 +212,24 @@ object Silver {
       if (load == ORE) {
         Move(pos.toBase())
       } else when (val lo = internalLastOrder) {
-        is Dig -> if (arena[lo.pos].shouldNotDig.also { debug("Should not dig ${lo.pos} $it -> ${arena[lo.pos]} : ${arena[lo.pos].shouldNotDig}") }) {
+        is Dig -> if (arena[lo.pos].shouldNotDig) {
           getBestDiggingSpot()
         } else lo
-        is Move -> if (atBase) {
-          if (myPowerUps.trap.available) {
-            RequestTrap()
-          } else {
-            getBestDiggingSpot()
-          }
-        } else lo
+        is Move -> when {
+          atBase && myPowerUps.trap.available -> RequestTrap()
+          else -> lo // keep rolling baby B)
+        }
         else -> getBestDiggingSpot()
       }
     }
 
-    override fun toString() = "ADig"
+    override fun toString() = "A"
   }
 
   class RobotTracker<R> where R : Robot<R> {
     val robots = mutableMapOf<Int, MutableList<Robot<R>>>()
 
     fun update(update: R) {
-      debug("Update $update")
       val robotHistory = robots.getOrPut(update.id) { mutableListOf() }
       val existingRobot = robotHistory.lastOrNull()
       if (existingRobot != null) {
@@ -218,16 +240,19 @@ object Silver {
     }
 
     inline fun <reified T> current() where T : Robot<T> =
-        this.robots.entries.filter { it.value.size == arena.tick }.map { it.value.last() as T }
+        this.robots.entries.filter { it.value.size == arena.step }.map { it.value.last() as T }
   }
 
   data class Arena(val width: Int, val height: Int) {
-    var tick = 0
+    val xAxis = (0 until width)
+    val yAxis = (0 until height)
+
+    var step = 0
       private set
 
-    fun tick() = tick++
+    fun goToNextStep() = step++
 
-    val cells = (0 until height).map { y -> (0 until width).map { x -> Cell(Position(x, y), null, null) } }
+    val cells = yAxis.map { y -> xAxis.map { x -> Cell(Position(x, y), null, null) } }
 
     // moving entities as map<id,history>
     val myRobots = RobotTracker<MyRobot>()
@@ -258,14 +283,38 @@ object Silver {
     }
 
     fun getKnownOres() = cells.flatten().filter { it.ore != null }.filter { it.ore!! > 0 }
-    
+
     fun getKnownTraps() = traps
 
     fun getSafeOres(): List<Cell> {
       val knownOres = arena.getKnownOres()
       val knownTraps = arena.getKnownTraps()
-      return knownOres.filter { it !in knownTraps }
+      val suspectedTraps = arena.getHeatMap()
+      return knownOres.filter { it !in knownTraps }.filter { suspectedTraps[it.pos] == 0 }
     }
+
+    /**
+     * @return The weather forecast for traps explosions
+     */
+    private val cache: MutableMap<Int, List<List<Int>>> = mutableMapOf(0 to listOf(listOf()))
+
+    fun getHeatMap(): List<List<Int>> =
+        cache.getOrPut(step) {
+          yAxis.map { y ->
+            xAxis.map { x ->
+              Position(x, y).inRadius(1, this).map { pos ->
+                if (cells[pos.y][pos.x].trap) 5 else if (cells[pos.y][pos.x].danger) 1 else 0
+              }.sum()
+            }
+          }.also {
+            debug(
+                "Suspected problems for" +
+                    it.mapIndexed { y, row ->
+                      row.mapIndexed { x, count -> if (count > 0) "$x $y ($count)" else "" }
+                    }.flatten().filter { it.isNotEmpty() }.joinToString(", ")
+            )
+          }
+        }
   }
 
   // game data
@@ -279,13 +328,13 @@ object Silver {
   }
 
   private fun loopParser(input: Scanner) {
-    arena.tick()
+    arena.goToNextStep()
     // Amount of ore delivered
     scores.mine = input.nextInt()
     scores.its = input.nextInt()
 
-    (0 until arena.height).map { y ->
-      (0 until arena.width).map { x ->
+    arena.yAxis.map { y ->
+      arena.xAxis.map { x ->
         val ore = input.next() // amount of ore or "?" if unknown
         val hole = input.nextInt() // 1 if cell has a hole
 
@@ -337,17 +386,17 @@ object Silver {
     debug("Known ores: $size")
     return when {
       size > 20 -> listOf(
-          AggressiveDigger(),
-          AggressiveDigger(),
-          AggressiveDigger(),
-          AggressiveDigger(),
+          PassiveDigger(),
+          PassiveDigger(),
+          PassiveDigger(),
+          PassiveDigger(),
           AggressiveDigger()
       )
-      size < 10 -> listOf(
+      size < 10 && idealRadarLocations().isNotEmpty() -> listOf(
           Spotter(),
-          AggressiveDigger(),
-          AggressiveDigger(),
-          AggressiveDigger(),
+          PassiveDigger(),
+          PassiveDigger(),
+          PassiveDigger(),
           AggressiveDigger()
       )
       else -> listOf()
@@ -360,8 +409,8 @@ object Silver {
   private fun idealRadarLocations(): List<Position> =
       listOf(
           Position(5, 3),
-          Position(5, 11),
           Position(10, 7),
+          Position(5, 11),
           Position(15, 3),
           Position(15, 11),
           Position(20, 7),
@@ -372,26 +421,29 @@ object Silver {
 
   fun act() {
     val act = arena.myRobots.current<MyRobot>().onEach { it.computeAction() }.joinToString("\n") {
-      "${it.action} ${it.strategy}"
+      "${it.action.order} - ${it.strategy}: ${it.action}"
     }
     println(act)
   }
 
 
   sealed class Action {
-    abstract val printed: String
-    override fun toString() = printed
+    abstract val order: String
+    override fun toString() = order
 
     class Wait : Action() {
-      override val printed = "WAIT"
+      override val order = "WAIT"
+      override fun toString() = "W"
     }
 
     class Move(val pos: Position) : Action() {
-      override val printed = "MOVE $pos"
+      override val order = "MOVE $pos"
+      override fun toString() = "M $pos"
     }
 
     class Dig(val pos: Position) : Action() {
-      override val printed = "DIG $pos"
+      override val order = "DIG $pos"
+      override fun toString() = "D $pos"
     }
 
     class RequestRadar : Action() {
@@ -399,7 +451,8 @@ object Silver {
         myPowerUps.radar.request()
       }
 
-      override val printed = "REQUEST RADAR"
+      override val order = "REQUEST RADAR"
+      override fun toString() = "R R"
     }
 
     class RequestTrap : Action() {
@@ -407,7 +460,8 @@ object Silver {
         myPowerUps.trap.request()
       }
 
-      override val printed = "REQUEST TRAP"
+      override val order = "REQUEST TRAP"
+      override fun toString() = "R T"
     }
   }
 
@@ -416,6 +470,12 @@ object Silver {
     fun distance(pos: Position) = abs(this.x - pos.x) + abs(this.y - pos.y)
     fun isNotBase() = x > 0
     fun toBase() = this.copy(x = 0)
+    fun inRadius(radius: Int, arena: Arena) =
+        (-radius..radius).flatMap { y ->
+          (-radius..radius).map { x ->
+            Position(this.x + x, this.y + y)
+          }
+        }.filter { it.x in arena.xAxis && it.y in arena.yAxis && it.distance(this) <= radius }
   }
 
   data class Cell(
@@ -423,9 +483,10 @@ object Silver {
       var ore: Int? = null,
       var hole: Boolean? = null,
       var radar: Boolean = false,
-      var trap: Boolean = false
+      var trap: Boolean = false,
+      var danger: Boolean = false
   ) {
-    val shouldNotDig = trap || !(hole == true && ore ?: 0 > 0)
+    val shouldNotDig get() = arena.getHeatMap()[pos] > 0 || ore == 0 || (hole == true && ore == null)
   }
 
   enum class Type {
@@ -434,7 +495,9 @@ object Silver {
     RADAR,
     TRAP,
     ORE,
-    NONE
+    NONE,
+    DANGER,
+    UNKNOWN
   }
 
   fun Int.toType() = when (this) {
@@ -445,6 +508,7 @@ object Silver {
 
 
   operator fun LinkedList<Action>.plus(action: Action) = this.also { add(action) }
-  fun debug(vararg message: String) = System.err.println("DBG " + message.joinToString())
+  operator fun <E> List<List<E>>.get(pos: Position): E = this[pos.y][pos.x]
+  fun debug(vararg message: Any) = System.err.println("DBG " + message.joinToString(" ") { it.toString() })
 }
 
