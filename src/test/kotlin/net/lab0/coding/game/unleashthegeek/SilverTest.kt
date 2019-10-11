@@ -20,16 +20,14 @@ internal class SilverTest {
 
   @Test
   fun `can generate empty heat map`() {
-    val a = Silver.Arena(10, 5)
-    a.goToNextStep()
-    a.goToNextStep()
+    val a = Silver.Arena()
 
     println("Computation time = ${measureNanoTime { a.getHeatMap() } / 1000 / 1000}")
 
     val heatMap = a.getHeatMap()
-    assertThat(heatMap).hasSize(5)
-    assertThat(heatMap.first()).hasSize(10)
-    assertThat(heatMap.flatten()).hasSize(50)
+    assertThat(heatMap).hasSize(30*15)
+    assertThat(heatMap.first()).hasSize(15)
+    assertThat(heatMap.flatten()).hasSize(30*15)
     heatMap.flatten().forEach {
       assertThat(it).isEqualTo(0)
     }
@@ -37,9 +35,7 @@ internal class SilverTest {
 
   @Test
   fun `can generate simple heat map`() {
-    val a = Silver.Arena(10, 5)
-    a.goToNextStep()
-    a.goToNextStep()
+    val a = Silver.Arena()
     a.cells[2][2].trap = true
 
     println("Computation time = ${measureNanoTime { a.getHeatMap() } / 1000 / 1000}")
@@ -50,9 +46,7 @@ internal class SilverTest {
 
   @Test
   fun `can generate danger heat map`() {
-    val a = Silver.Arena(10, 5)
-    a.goToNextStep()
-    a.goToNextStep()
+    val a = Silver.Arena()
     a.cells[2][2].danger = true
 
     println("Computation time = ${measureNanoTime { a.getHeatMap() } / 1000 / 1000}")
@@ -72,8 +66,7 @@ internal class SilverTest {
 
   @Test
   fun `surrounding positions`() {
-    val a = Silver.Arena(10, 5)
-    val ps = Silver.Position(2, 2).inRadius(1, a)
+    val ps = Silver.Position(2, 2).inRadius(1)
     assertThat(ps).hasSize(5)
     assertThat(ps).containsExactlyInAnyOrder(
         Silver.Position(2,2),
