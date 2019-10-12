@@ -1,6 +1,7 @@
 import java.util.*
 import Silver.Action.*
 import Silver.Type.*
+import java.lang.IllegalArgumentException
 import kotlin.math.abs
 
 fun main(vararg args: String) {
@@ -612,12 +613,62 @@ object Silver {
     override fun toString() = "$x $y"
     fun distance(pos: Position) = abs(this.x - pos.x) + abs(this.y - pos.y)
     fun stepDistance(pos: Position) = (this.distance(pos) + MAX_DISTANCE_PER_STEP - 1) / MAX_DISTANCE_PER_STEP
-    fun inRadius(radius: Int) =
+
+    /**
+     * Yields positions around this point, starting from this point's position
+     */
+    fun around(xBounds: IntRange = xAxis, yBounds: IntRange = yAxis): Sequence<Position> {
+      return sequence {
+        (0..Int.MAX_VALUE).asSequence().forEach { radius ->
+          this@Position.atRadius(radius, xBounds, yBounds).forEach {
+            yield(it)
+          }
+        }
+      }
+    }
+
+    fun inRadius(radius: Int, xBounds: IntRange = xAxis, yBounds: IntRange = yAxis) =
         (-radius..radius).flatMap { y ->
           (-radius..radius).map { x ->
             Position(this.x + x, this.y + y)
           }
-        }.filter { it.x in xAxis && it.y in yAxis && it.distance(this) <= radius }
+        }.filter { it.x in xBounds && it.y in yBounds && it.distance(this) <= radius }
+
+    fun atRadius(i: Int, xRange: IntRange, yRange: IntRange): Sequence<Position> =
+        when {
+          i == 0 -> sequenceOf(this)
+          i > 0 -> sequence {
+            // return 4 edges in trigonometric order
+
+            val rangeCheck = { p: Pair<Int, Int> ->
+              (this@Position.x + p.first) in xRange && (this@Position.y + p.second) in yRange
+            }
+
+            // top right
+            (i downTo 1).toList()
+                .zip((0..i - 1).toList())
+                .filter(rangeCheck)
+                .forEach { (x, y) -> yield(Position(this@Position.x + x, this@Position.y + y)) }
+
+            // top left
+            (0 downTo -i + 1).toList()
+                .zip((i downTo 1).toList())
+                .filter(rangeCheck)
+                .forEach { (x, y) -> yield(Position(this@Position.x + x, this@Position.y + y)) }
+
+            // bottom left
+            (-i..-1).toList()
+                .zip((0 downTo -i + 1).toList())
+                .filter(rangeCheck)
+                .forEach { (x, y) -> yield(Position(this@Position.x + x, this@Position.y + y)) }
+
+            // bottom right
+            (0..i - 1).toList().zip((-i..-1).toList())
+                .filter(rangeCheck)
+                .forEach { (x, y) -> yield(Position(this@Position.x + x, this@Position.y + y)) }
+          }
+          else -> throw IllegalArgumentException("Expected i to be positive, was $i")
+        }
   }
 
   data class Cell(
@@ -656,7 +707,8 @@ object Silver {
 
 
 // TODO: when there is no more ore, try to kill the opponent's robots
-// TODO: when mining, if it's possible to mine at a position that will indicate a danger on more ore field, prefer that over the shortest distance mining
+
+// TODO: when mining, if it's possible to mine at a position that will indicate a danger on more ore fields (to the opponent), prefer that over the shortest distance mining, assuming it's the same number of steps
 // TODO: when found ore, add to ore potential heat map
 // TODO: when radar gets destroyed, remember the ore's position and decrease their value based on surrounding digging
 // TODO: when dug and found o ore -> set ore value to 0
@@ -665,3 +717,6 @@ object Silver {
 // TODO: prefer put mines on high yield ores
 // TODO: when opponent mines my radar and the same cell contains ore, then I still think tha there is ore in there -> find if it's possible to deduce which ore was mined (radar disapeared) and mark as empty
 // TODO: radar position management
+// TODO: when getting back to the base to get a new radar, try to get closer to the next place where it has to be put
+// TODO: when doing suicide missions, keep other collectors outside of trap and trap chain explosion area
+// TODO: don't put a mine and collect on the same tile :/ silly me ...
