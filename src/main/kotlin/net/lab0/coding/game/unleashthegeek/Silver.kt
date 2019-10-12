@@ -23,6 +23,7 @@ object Silver {
   val holeManager = HoleManager()
   val oreManager = OreManager()
   val dangerManager = DangerManager()
+  val radarManager = RadarManager(dangerManager)
   val scores = Scores(0, 0)
   val myPowerUps = PowerUps()
 
@@ -81,16 +82,6 @@ object Silver {
       return internalLastOrder
     }
 
-    fun getBestRadarSpot(): Dig? {
-      val map = arena.radars.map { it.pos }
-
-      val idealPosition = getNextIdealRadarLocation()
-      return idealPosition
-          ?.inRadius(2)
-          ?.sortedBy { it.distance(idealPosition) }
-          ?.first { dangerManager[it] == 0 }?.let { Dig(it) }
-    }
-
     fun getBestDiggingSpot(): Action {
       val safeOres = arena.getSafeOres()
       val closestCells = getClosestCells()
@@ -132,7 +123,7 @@ object Silver {
             .sortedBy { it.distance(pos) }
             .sortedBy { it.x } // favour things that are on the way back home
             .map { it }
-        Dig(
+        Action.Dig(
             closest.getOrElse(0) {
               closestCells
                   .filterNot { holeManager.lastKnownValue(it.pos.x, it.pos.y) }
@@ -146,17 +137,19 @@ object Silver {
 
     private fun getClosestCells() = arena.cells.flatten().sortedBy { it.pos.distance(this.pos) }
 
-    fun List<Position>.notTargeted(): List<Position> {
+    fun Sequence<Position>.notTargeted(): Sequence<Position> {
       val targetedPositions = arena.myRobots.current<MyRobot>().map { robot ->
         when (val lo = robot.action) {
           is Move -> lo.pos
-          is Dig -> lo.pos
+          is Action.Dig -> lo.pos
           else -> Position(0, 0)
         }
       }
 
       return this.filter { it !in targetedPositions }
     }
+
+    fun List<Position>.notTargeted() = this.asSequence().notTargeted()
   }
 
   data class ItsRobot(
@@ -167,7 +160,7 @@ object Silver {
     override fun copyAndUpdate(update: ItsRobot) = this.copy(
         pos = update.pos,
         load = when {
-          pos == update.pos && pos.x == 0 -> DANGER.also { debug("Suspect load from $id at $pos") }
+          pos == update.pos && pos.x == 0 -> Type.DANGER.also { debug("Suspect load from $id at $pos") }
           /**
            * Hoping for the best and assuming that it mine and didn't trick me into thinking I mined
            */
@@ -206,7 +199,7 @@ object Silver {
 
   class Spotter : Strategy {
     override fun nextOrder(robot: MyRobot): Action = with(robot) {
-      val bestRadarSpot = getBestRadarSpot()
+      val bestRadarSpot = radarManager.getNextRadarPosition()
       when {
         step == 1 -> RequestRadar()
         load == ORE -> Move(toBase)
@@ -216,9 +209,8 @@ object Silver {
         }
         else -> when (val lo = internalLastOrder) {
           is Dig -> {
-            val cell = arena[lo.pos]
             if (load == RADAR) {
-              bestRadarSpot
+              Dig(bestRadarSpot)
             } else {
               val directlyAccessibleOres = arena.getSafeOres().filter { it.distance(this.pos) <= 4 }
               if (directlyAccessibleOres.isEmpty()) {
@@ -236,7 +228,7 @@ object Silver {
               Wait()
             }
           } else lo
-          is RequestRadar -> bestRadarSpot
+          is RequestRadar -> Dig(bestRadarSpot)
           else -> Move(toBase)
         }
       }
@@ -314,7 +306,7 @@ object Silver {
     }
 
     // TODO: reduce the value when there was a dig in the area
-    fun stepUpdate() = {}
+    fun stepUpdate(){}
     //yAxis.forEach { y -> xAxis.forEach { x -> history[step][y][x] = history[step - 1][y][x] } }
 
     fun lastKnownValue(x: Int, y: Int): Int =
@@ -361,15 +353,46 @@ object Silver {
     }
   }
 
-  class RadarManager {
+  class RadarManager(private val dangerManager: DangerManager) {
     val history: Array<Array<BooleanArray>> =
         Array(MAX_TURNS) { Array(HEIGHT) { BooleanArray(WIDTH) { false } } }
 
     val current get() = history[step]
 
+    operator fun get(pos: Position) = history[step][pos.y][pos.x]
+
     fun update(x: Int, y: Int) {
       history[step][y][x] = true
     }
+
+    private val radars = listOf(
+        Position(4, 3),
+        Position(9, 7),
+        Position(4, 11),
+        Position(14, 3),
+        Position(14, 11),
+        Position(19, 7),
+        Position(24, 3),
+        Position(24, 11),
+        Position(28, 7)
+    )
+
+    // TODO: avoid gaps in radar coverage
+    fun getNextRadarPosition(): Position? =
+        radars
+            .firstOrNull { it.getAlternativePositions().none { it.alreadyHasRadar() } }
+            ?.getAlternativePositions()
+            ?.firstOrNull { it.canPlaceRadar() }
+
+    fun Position.canPlaceRadar(): Boolean {
+      // TODO: avoid putting radar on ore? does digging my radar remove it?
+      return dangerManager[this] == 0
+    }
+
+    fun Position.alreadyHasRadar() = this@RadarManager[this]
+
+    // TODO: LOW may need to adjust this range
+    fun Position.getAlternativePositions() = this.inRadius(2)
   }
 
   class Arena {
@@ -391,12 +414,6 @@ object Silver {
 
     operator fun get(x: Int, y: Int) = cells[y][x]
     operator fun get(pos: Position) = cells[pos.y][pos.x]
-
-    fun clearCells() {
-      cells.flatten().forEach {
-        it.radar = false
-      }
-    }
 
     // TODO: remove non existing entities
     fun updateEntity(entity: Entity) {
@@ -480,7 +497,6 @@ object Silver {
     myPowerUps.radar.updateCooldown(input.nextInt())  // turns left until a new radar can be requested
     myPowerUps.trap.updateCooldown(input.nextInt()) // turns left until a new trap can be requested
 
-    arena.clearCells() // TODO: find a way to avoid clearing everything (History of cells?)
     (0 until entityCount).forEach { _ ->
       val id = input.nextInt() // unique id of the entity
       val typeId = input.nextInt() // 0 for your robot, 1 for other robot, 2 for radar, 3 for trap
@@ -500,7 +516,7 @@ object Silver {
       when (typeId.toType()) {
         MINE -> arena.updateEntity(MyRobot(id, pos, item))
         ITS -> arena.updateEntity(ItsRobot(id, pos))
-        RADAR -> arena.updateEntity(Radar(id, pos)) // TODO radar manager
+        RADAR -> radarManager.update(x, y)
         TRAP -> dangerManager.updateTrap(pos)
         else -> TODO("How to scan type id $typeId")
       }
@@ -533,7 +549,7 @@ object Silver {
           PassiveDigger(),
           AggressiveDigger()
       )
-      size < 10 && getNextIdealRadarLocation() != null -> listOf(
+      size < 10 && radarManager.getNextRadarPosition() != null -> listOf(
           Spotter(),
           PassiveDigger(),
           PassiveDigger(),
@@ -544,24 +560,6 @@ object Silver {
     } // no changes
   }
 
-  fun getNextIdealRadarLocation() =
-      idealRadarLocations().firstOrNull { ideal -> arena.radars.none { it.pos.distance(ideal) < 2 } }
-
-  /**
-   * @return the best places to put a radar
-   */
-  private fun idealRadarLocations(): List<Position> =
-      listOf(
-          Position(4, 3),
-          Position(9, 7),
-          Position(4, 11),
-          Position(14, 3),
-          Position(14, 11),
-          Position(19, 7),
-          Position(24, 3),
-          Position(24, 11),
-          Position(28, 7)
-      )
 
   fun act() {
     val act = arena.myRobots.current<MyRobot>().onEach { it.computeAction() }.joinToString("\n") {
@@ -628,11 +626,13 @@ object Silver {
     }
 
     fun inRadius(radius: Int, xBounds: IntRange = xAxis, yBounds: IntRange = yAxis) =
-        (-radius..radius).flatMap { y ->
-          (-radius..radius).map { x ->
-            Position(this.x + x, this.y + y)
+        sequence {
+          (0..radius).forEach { radius ->
+            atRadius(radius, xBounds, yBounds).forEach {
+              yield(it)
+            }
           }
-        }.filter { it.x in xBounds && it.y in yBounds && it.distance(this) <= radius }
+        }
 
     fun atRadius(i: Int, xRange: IntRange, yRange: IntRange): Sequence<Position> =
         when {
@@ -672,17 +672,15 @@ object Silver {
   }
 
   data class Cell(
-      val pos: Position,
-      var radar: Boolean = false
+      val pos: Position
   )
 
   fun shouldNotDig(x: Int, y: Int): Boolean {
     val oreValue = oreManager.lastKnownValue(x, y)
-    val dangerHeatMap = dangerManager.history[step]
 
     return oreValue == 0 ||
         (holeManager.history[step][y][x] && oreValue == -1) ||
-        dangerHeatMap[y][x] > 0
+        dangerManager.history[step][y][x] > 0
   }
 
   // META
@@ -697,7 +695,7 @@ object Silver {
   fun Int.toType() = when (this) {
     -1 -> NONE
     in Type.values().indices -> Type.values()[this]
-    else -> TODO("How to scan item type id $this")
+    else -> throw IllegalStateException("How to scan item type id $this")
   }
 
   operator fun LinkedList<Action>.plus(action: Action) = this.also { add(action) }
@@ -706,17 +704,28 @@ object Silver {
 }
 
 
-// TODO: when there is no more ore, try to kill the opponent's robots
+// HIGH PRIO
 
-// TODO: when mining, if it's possible to mine at a position that will indicate a danger on more ore fields (to the opponent), prefer that over the shortest distance mining, assuming it's the same number of steps
-// TODO: when found ore, add to ore potential heat map
-// TODO: when radar gets destroyed, remember the ore's position and decrease their value based on surrounding digging
-// TODO: when dug and found o ore -> set ore value to 0
-// TODO: if dug once on ore and didn't come back: smells like a trap
-// TODO: when doing random digging, stay ~2 steps from the base
-// TODO: prefer put mines on high yield ores
-// TODO: when opponent mines my radar and the same cell contains ore, then I still think tha there is ore in there -> find if it's possible to deduce which ore was mined (radar disapeared) and mark as empty
-// TODO: radar position management
-// TODO: when getting back to the base to get a new radar, try to get closer to the next place where it has to be put
-// TODO: when doing suicide missions, keep other collectors outside of trap and trap chain explosion area
+// TODO: coordinate mining operations
+
 // TODO: don't put a mine and collect on the same tile :/ silly me ...
+// TODO: when found ore, add to ore potential heat map
+
+// TODO: when dug and found o ore -> try again at the same place
+
+// TODO: when radar gets destroyed, remember the ore's position and decrease their value based on surrounding digging
+
+// TODO: prefer put mines on high yield ores
+
+// TODO: when getting back to the base to get a new radar, try to get closer to the next place where it has to be put
+
+// LOW OCCURENCE
+
+// TODO: when opponent mines my radar and the same cell contains ore, then I still think tha there is ore in there -> find if it's possible to deduce which ore was mined (radar disapeared) and mark as empty
+
+// LATE GAME
+// TODO: when doing suicide missions, keep other collectors outside of trap and trap chain explosion area
+// TODO: when mining, if it's possible to mine at a position that will indicate a danger on more ore fields (to the opponent), prefer that over the shortest distance mining, assuming it's the same number of steps
+// TODO: when there is no more ore, try to kill the opponent's robots
+// TODO: if dug once on ore and didn't come back: smells like a trap
+// TODO: when doing random digging, stay ~2 steps from the trap
