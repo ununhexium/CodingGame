@@ -84,7 +84,6 @@ object Silver {
 
     fun computeAction(): Action {
       internalLastOrder = strategy.nextOrder(this)
-      debug("Updated action for $id")
       return internalLastOrder
     }
 
@@ -161,7 +160,11 @@ object Silver {
       when (load) {
         RADAR -> radarManager.getNextRadarPosition()?.let { Dig(it) }
             ?: internalLastOrder.also { debug("No radar spot available: continue to $it") }
-        else -> RequestRadar()
+        ORE -> Move(toBase)
+        else -> {
+          val oreNearby = oreManager.getSafeOres().firstOrNull { it.distance(robot.pos) < 4 }
+          if (oreNearby != null) Dig(oreNearby) else RequestRadar()
+        }
       }
     }
 
@@ -187,8 +190,8 @@ object Silver {
       } else {
         when (val lo = internalLastOrder) {
           is Dig -> when {
-            dangerManager[lo.pos] > 0 -> oreManager.getNextEagerTarget(robot)
             oreManager[lo.pos] <= 0 -> oreManager.getNextEagerTarget(robot)
+            dangerManager[lo.pos] > 0 -> oreManager.getNextEagerTarget(robot)
             else -> lo
           }
           else -> oreManager.getNextEagerTarget(robot)
@@ -286,24 +289,35 @@ object Silver {
     }
 
     fun getNextEagerTarget(robot: MyRobot): Action {
-      val currentDigTargets = arena.myRobots.current<MyRobot>().mapNotNull { it.action as? Dig }.map { it.pos }
-      debug("Current targets: $currentDigTargets")
+      if (clock.step == 1) {
+        return Dig(robot.pos.copy(x = 4))
+      }
 
-      // continue mining around the current position
-      val immediatePosition =
-          robot.pos.inRadius(1)
-              .filter { dangerManager[it] == 0 && !holeManager[it] && it !in currentDigTargets }
-              .firstOrNull().also { debug("Immediate position: $it") }
+      val currentDigTargets = arena.myRobots.current<MyRobot>()
+          .mapNotNull { it.action as? Dig }
+          .map { it.pos }
+          .toMutableList()
 
+      val directOre = getSafeOres().filterNot { currentDigTargets.remove(it) }.sortedBy { it.distance(robot.pos) }.firstOrNull()
+      debug("Found direct ore: $directOre")
+
+      // aim for radar when it will be planted
+      val nextRadarLocation = arena.myRobots.current<MyRobot>()
+          .filter { it.strategy == Scout }
+          .mapNotNull { (it.action as? Dig)?.pos }
+          .firstOrNull()
+
+      val searchingArea = nextRadarLocation ?: robot.pos
 
       // if nothing around current position, look for large mineable space
-      val bestTarget = if (immediatePosition != null) {
-        immediatePosition
-      } else {
-        // TODO need more that 2 steps wide search?
-        debug("Search in radius ${2.steps}")
-        robot.pos.inRadius(2.steps).firstOrNull { holeManager.uncoveredPositionsAround(it) > 3 }
-      }
+      val bestTarget =
+          directOre
+              ?: nextRadarLocation
+              ?: searchingArea.inRadius(1)
+                  .filter { dangerManager[it] == 0 && !holeManager[it] && it !in currentDigTargets }
+                  .firstOrNull()
+
+              ?: searchingArea.inRadius(2.steps).firstOrNull { holeManager.uncoveredPositionsAround(it) > 4 }
 
       return if (bestTarget != null) {
         digTargets[clock.step].add(bestTarget)
@@ -371,8 +385,8 @@ object Silver {
 
     private val radars = listOf(
         Position(4, 3),
-        Position(9, 7),
         Position(4, 11),
+        Position(9, 7),
         Position(14, 3),
         Position(14, 11),
         Position(19, 7),
@@ -518,10 +532,12 @@ object Silver {
     }
 
     val knownOres = oreManager.countOres()
+    val knownSafeOres = oreManager.getSafeOres().count()
     debug("Known ores: $knownOres")
+    debug("Known safe ores: $knownSafeOres")
     when {
-      knownOres < 10 -> objectives.add(EMERGENCY_SCOUT).also { debug("Need emergency scout") }
-      knownOres < 15 -> objectives.add(SCOUT).also { debug("Need scout") }
+      radarManager.canAddRadar() && knownSafeOres < 10 -> objectives.add(EMERGENCY_SCOUT).also { debug("Need emergency scout") }
+      radarManager.canAddRadar() && knownSafeOres < 25 -> objectives.add(SCOUT).also { debug("Need scout") }
     }
 
     repeat(5) { objectives.add(ARBITRARY_COLLECT) }
@@ -786,3 +802,4 @@ object Silver {
 // TODO: when there is no more ore, try to kill the opponent's robots
 // TODO: if dug once on ore and didn't come back: smells like a trap
 // TODO: when doing random digging, stay ~2 steps from the trap
+// TODO: when
