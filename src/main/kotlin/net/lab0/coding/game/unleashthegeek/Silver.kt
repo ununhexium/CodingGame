@@ -26,9 +26,9 @@ object Silver {
   val arena = Arena()
   val clock = Clock(0)
   val holeManager = HoleManager(clock)
-  val dangerManager = DangerManager(clock)
-  val oreManager = OreManager(clock, dangerManager)
-  val radarManager = RadarManager(clock, dangerManager)
+  val trapManager = TrapManager(clock)
+  val oreManager = OreManager(clock, trapManager)
+  val radarManager = RadarManager(clock, trapManager)
   val scores = Scores(0, 0)
   val myPowerUps = PowerUps()
 
@@ -118,7 +118,7 @@ object Silver {
            */
           pos == update.pos && pos.x != 0 && load == DANGER -> {
             debug("Suspect danger from $id at $pos")
-            dangerManager.updateDanger(pos)
+            trapManager.updateDanger(pos)
             UNKNOWN
           }
           else -> load
@@ -171,10 +171,16 @@ object Silver {
     // TODO: allow for selection by index: so it's possible to select more than 1 robot for a role
     override fun selection(index: Int, robots: List<MyRobot>): MyRobot? {
       return when (index) {
-        0 -> robots.firstOrNull { it.strategy == Scout } // re-select the scout
-            ?: robots.firstOrNull { it.load == RADAR }
-            ?: robots.firstOrNull { it.atBase } // otherwise select a robot at base
-            ?: robots.minBy { it.pos.x } // otherwise select the closest from base
+        0 -> {
+          robots.firstOrNull { it.strategy == Scout } // re-select the scout
+              ?: robots.firstOrNull { it.load == RADAR }
+              // closest to next radar location
+              ?: robots.filter { (it.atBase) }
+                  .minBy { it.pos.distance(radarManager.getNextRadarPosition() ?: Position(0,0)) }
+              ?: robots.firstOrNull { it.atBase } // otherwise select a robot at base
+              ?: robots.minBy { it.pos.x } // closest to base
+        }
+        // otherwise select the closest from base
         else -> robots.firstOrNull { myPowerUps.radar.available && it.atBase }
       }
     }
@@ -188,13 +194,15 @@ object Silver {
       if (load == ORE) {
         Move(toBase)
       } else {
-        when (val lo = internalLastOrder) {
+        if (atBase && trapManager.shouldTakeTrap()) {
+          RequestTrap()
+        } else when (val lo = internalLastOrder) {
           is Dig -> when {
-            oreManager[lo.pos] <= 0 -> oreManager.getNextEagerTarget(robot)
-            dangerManager[lo.pos] > 0 -> oreManager.getNextEagerTarget(robot)
+            oreManager[lo.pos] <= 0 -> oreManager.getNextTarget(robot)
+            trapManager[lo.pos] > 0 -> oreManager.getNextTarget(robot)
             else -> lo
           }
-          else -> oreManager.getNextEagerTarget(robot)
+          else -> oreManager.getNextTarget(robot)
         }
       }
     }
@@ -227,7 +235,7 @@ object Silver {
 
   // MANAGEMENT
 
-  class OreManager(private val clock: Clock, private val dangerManager: DangerManager) {
+  class OreManager(private val clock: Clock, private val trapManager: TrapManager) {
     // -1 is unknown
     val history: Array<Array<IntArray>> =
         Array(MAX_TURNS) { Array(HEIGHT) { IntArray(WIDTH) { -1 } } }
@@ -263,15 +271,15 @@ object Silver {
 
     fun countOres() = current.sumBy { it.sumBy { if (it <= 0) 0 else it } }
 
-    fun getSafeOres() = getKnownOres().filter { dangerManager[it] == 0 }
+    fun getSafeOres() = getKnownOres().filter { trapManager[it] == 0 }
 
-    fun getUnsafeOres() = getKnownOres().sortedBy { dangerManager[it] }
+    fun getUnsafeOres() = getKnownOres().sortedBy { trapManager[it] }
 
     // TODO: in late game, could commit suicide to free an ore to others
 //          val unsafeOre = oreManager.getUnsafeOres()
     // don't sacrifice the last robot
 //          if (unsafeOre.isNotEmpty() && clock.step > 150 && arena.myRobots.current<MyRobot>().size > 1) {
-//            val unsafeDig = unsafeOre.filter { dangerManager[it] < 5 }.minBy { it.distance(pos) }
+//            val unsafeDig = unsafeOre.filter { trapManager[it] < 5 }.minBy { it.distance(pos) }
 //            debug("Suicide digging to $unsafeDig")
 //            if (unsafeDig != null) {
 //              Dig(unsafeDig)
@@ -284,37 +292,33 @@ object Silver {
 
       return oreValue == 0 ||
           (holeManager.history[clock.step][y][x] && oreValue <= 0) ||
-          dangerManager.history[clock.step][y][x] > 0
+          trapManager.history[clock.step][y][x] > 0
       // TODO: should not dig if other robot are aiming at it
     }
 
-    fun getNextEagerTarget(robot: MyRobot): Action {
-      if (clock.step == 1) {
-        return Dig(robot.pos.copy(x = 4))
-      }
-
+    fun getNextTarget(robot: MyRobot): Action {
       val currentDigTargets = arena.myRobots.current<MyRobot>()
           .mapNotNull { it.action as? Dig }
           .map { it.pos }
           .toMutableList()
 
-      val directOre = getSafeOres().filterNot { currentDigTargets.remove(it) }.sortedBy { it.distance(robot.pos) }.firstOrNull()
-      debug("Found direct ore: $directOre")
+      val directOre = getSafeOres().filterNot { currentDigTargets.remove(it) }.sortedBy { it.distance(robot.pos) }
+          .firstOrNull()
 
       // aim for radar when it will be planted
       val nextRadarLocation = arena.myRobots.current<MyRobot>()
           .filter { it.strategy == Scout }
           .mapNotNull { (it.action as? Dig)?.pos }
           .firstOrNull()
+          ?: radarManager.getNextRadarPosition()
 
       val searchingArea = nextRadarLocation ?: robot.pos
 
       // if nothing around current position, look for large mineable space
       val bestTarget =
           directOre
-              ?: nextRadarLocation
               ?: searchingArea.inRadius(1)
-                  .filter { dangerManager[it] == 0 && !holeManager[it] && it !in currentDigTargets }
+                  .filter { trapManager[it] == 0 && !holeManager[it] && it !in currentDigTargets }
                   .firstOrNull()
 
               ?: searchingArea.inRadius(2.steps).firstOrNull { holeManager.uncoveredPositionsAround(it) > 4 }
@@ -344,7 +348,7 @@ object Silver {
     fun uncoveredPositionsAround(pos: Position) = pos.inRadius(1).sumBy { if (this@HoleManager[it]) 0 else 1 }
   }
 
-  class DangerManager(private val clock: Clock) {
+  class TrapManager(private val clock: Clock) {
     val history: Array<Array<IntArray>> =
         Array(MAX_TURNS) { Array(HEIGHT) { IntArray(WIDTH) { 0 } } }
 
@@ -369,9 +373,16 @@ object Silver {
         }
       }
     }
+
+    var lastTrapTime = 0
+    fun shouldTakeTrap(): Boolean {
+      val should = myPowerUps.trap.available && (clock.step - lastTrapTime) > 10
+      if (should) lastTrapTime = clock.step
+      return should
+    }
   }
 
-  class RadarManager(private val clock: Clock, private val dangerManager: DangerManager) {
+  class RadarManager(private val clock: Clock, private val trapManager: TrapManager) {
     val history: Array<Array<BooleanArray>> =
         Array(MAX_TURNS) { Array(HEIGHT) { BooleanArray(WIDTH) { false } } }
 
@@ -406,7 +417,7 @@ object Silver {
 
     fun Position.canPlaceRadar(): Boolean {
       // TODO: avoid putting radar on ore? does digging my radar remove it?
-      return dangerManager[this] == 0
+      return trapManager[this] == 0
     }
 
     fun Position.alreadyHasRadar() = this@RadarManager[this]
@@ -469,7 +480,7 @@ object Silver {
 
   private fun loopParser(input: Scanner) {
     clock.tick()
-    dangerManager.stepUpdate()
+    trapManager.stepUpdate()
     oreManager.stepUpdate()
 
     // Amount of ore delivered
@@ -516,7 +527,7 @@ object Silver {
         MINE -> arena.updateEntity(MyRobot(id, pos, item))
         ITS -> arena.updateEntity(ItsRobot(id, pos))
         RADAR -> radarManager.update(x, y)
-        TRAP -> dangerManager.updateTrap(pos)
+        TRAP -> trapManager.updateTrap(pos)
         else -> TODO("How to scan type id $typeId")
       }
     }
@@ -537,7 +548,7 @@ object Silver {
     debug("Known safe ores: $knownSafeOres")
     when {
       radarManager.canAddRadar() && knownSafeOres < 10 -> objectives.add(EMERGENCY_SCOUT).also { debug("Need emergency scout") }
-      radarManager.canAddRadar() && knownSafeOres < 25 -> objectives.add(SCOUT).also { debug("Need scout") }
+      radarManager.canAddRadar() && knownSafeOres < 20 -> objectives.add(SCOUT).also { debug("Need scout") }
     }
 
     repeat(5) { objectives.add(ARBITRARY_COLLECT) }
@@ -551,7 +562,7 @@ object Silver {
                 {
                   yAxis.forEach a@{ y ->
                     xAxis.forEach { x ->
-                      if (dangerManager.current[y][x] == 0) {
+                      if (trapManager.current[y][x] == 0) {
                         it.internalLastOrder = Move(Position(x, y))
                         return@a
                       }

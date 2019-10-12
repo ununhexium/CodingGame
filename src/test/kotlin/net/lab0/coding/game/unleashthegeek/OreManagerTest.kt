@@ -7,7 +7,7 @@ class OreManagerTest {
   @Test
   fun `can count ore`() {
     val c = Silver.Clock(0)
-    val dm = Silver.DangerManager(c)
+    val dm = Silver.TrapManager(c)
     val om = Silver.OreManager(c,dm)
 
     assertThat(om.getKnownOres()).hasSize(0)
