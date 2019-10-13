@@ -163,26 +163,19 @@ object Silver {
       val nextRadarPosition = radarManager.getNextRadarPosition()
       when (load) {
         RADAR -> {
-          nextRadarPosition?.let { Dig(it).also { debug("0") } }
-              ?: internalLastOrder.also { debug("No radar spot available: continue to $it") }.also { debug("1") }
+          nextRadarPosition?.let { Dig(it) }
+              ?: internalLastOrder.also { debug("No radar spot available: continue to $it") }
         }
-        ORE -> if (nextRadarPosition != null) Move(toBase.copy(y = nextRadarPosition.y)).also { debug("2") } else Move(
-            toBase
-        ).also { debug("3") }
+        ORE -> if (nextRadarPosition != null) Move(toBase.copy(y = nextRadarPosition.y)) else Move(toBase)
         else -> {
           // look for something on the way back
           // TODO: this should actually be computed in steps cost instead of rough distance
           val oreNearby = oreManager.getSafeOres().filter { it.x < pos.x }.sortedByDescending { it.y }
               .firstOrNull { it.stepDistance(robot.pos) < 1 }
-          debug("Radar available = ${radarManager.radarAvailable}")
           when {
-            atBase && !radarManager.radarAvailable && nextRadarPosition != null -> Move(nextRadarPosition.copy(x = 0)).also {
-              debug(
-                  "4"
-              )
-            }
-            oreNearby != null -> Dig(oreNearby).also { debug("5") }
-            else -> RequestRadar().also { debug("6") }
+            atBase && !radarManager.radarAvailable && nextRadarPosition != null -> Move(nextRadarPosition.copy(x = 0))
+            oreNearby != null -> Dig(oreNearby)
+            else -> RequestRadar()
           }
         }
       }
@@ -211,8 +204,6 @@ object Silver {
 
   object EagerDigger : Strategy {
     override fun nextOrder(robot: MyRobot) = with(robot) {
-      trapManager.kamikazePotential()?.let { return Dig(it) }
-
       if (load == ORE) {
         Move(toBase)
       } else {
@@ -346,7 +337,9 @@ object Silver {
             ?: radarManager.getNextRadarPosition()
       } else null
 
-      val searchingArea = nextRadarLocation ?: robot.pos
+      val searchingArea =
+          if (nextRadarLocation != null && robot.pos in nextRadarLocation.inRadius(4)) robot.pos else nextRadarLocation
+              ?: robot.pos
 
       // if nothing around current position, look for large mineable space
       val bestTarget =
@@ -355,7 +348,18 @@ object Silver {
                   .filter { trapManager[it] == 0 && !holeManager[it] && it !in currentDigTargets }
                   .firstOrNull()
 
-              ?: searchingArea.inRadius(2.steps).firstOrNull { holeManager.uncoveredPositionsAround(it) > 4 }
+              ?: searchingArea
+                  .inRadius(1.steps)
+                  .toList()
+                  .shuffled()
+                  .filter { holeManager.holeDensityAt(it) < 50 }
+                  .firstOrNull { holeManager.uncoveredPositionsAround(it) > 4 }
+
+              ?: searchingArea
+                  .inRadius(2.steps)
+                  .toList()
+                  .shuffled()
+                  .firstOrNull { holeManager.uncoveredPositionsAround(it) > 4 }
 
       return if (bestTarget != null) {
         digTargets[clock.step].add(bestTarget)
@@ -371,6 +375,11 @@ object Silver {
     val history: Array<Array<BooleanArray>> =
         Array(MAX_TURNS) { Array(HEIGHT) { BooleanArray(WIDTH) { false } } }
 
+    val densityHistory: Array<Array<IntArray>> =
+        Array(MAX_TURNS) { Array(HEIGHT) { IntArray(WIDTH) { 0 } } }
+
+    private val computedDensity = Array(MAX_TURNS) { false }
+
     fun update(x: Int, y: Int, amount: Boolean) {
       history[clock.step][y][x] = amount
     }
@@ -380,6 +389,20 @@ object Silver {
     fun lastKnownValue(x: Int, y: Int): Boolean = history[clock.step][y][x]
 
     fun uncoveredPositionsAround(pos: Position) = pos.inRadius(1).sumBy { if (this@HoleManager[it]) 0 else 1 }
+
+    fun holeDensityAt(it: Position, radius: Int = 2): Int {
+      if (!computedDensity[clock.step]) {
+        val current = densityHistory[clock.step]
+        yAxis.forEach { y ->
+          xAxisNoBase.forEach { x ->
+            val area = Position(x, y).inRadius(radius).toList()
+            current[y][x] = area.count { this@HoleManager[it] } * 100 / area.count()
+          }
+        }
+        computedDensity[clock.step] = true
+      }
+      return densityHistory[clock.step][it.y][it.x]
+    }
   }
 
   class TrapManager(private val clock: Clock) {
@@ -429,9 +452,15 @@ object Silver {
     }
 
     // TODO check for chain reactions
-    fun kamikazePotential(robot: MyRobot): Position {
-      // hard kamikaze
-      val surroundingTraps = robot.pos.inRadius(1).filter { this@TrapManager[it] >  }
+    fun kaboomPotential(robot: MyRobot): Position? {
+      // hardcore kamikaze
+      return robot.pos.inRadius(1).filter { this@TrapManager[it] > 4 }.filter { trap ->
+        val myRobots = arena.current<MyRobot>().count { it.pos == trap }
+        val itsRobots = arena.current<ItsRobot>().count { it.pos == trap }
+        itsRobots - myRobots > 0
+      }.firstOrNull()
+
+      // TODO: suicidal tendencies: if has potential to trigger explosion favourably AND there is ore at that place
     }
   }
 
@@ -512,6 +541,14 @@ object Silver {
     // moving entities as map<id,history>
     val myRobots = RobotTracker<MyRobot>()
     val itsRobots = RobotTracker<ItsRobot>()
+
+
+    inline fun <reified T> current() where T : Robot<T> =
+        when (T::class) {
+          MyRobot::class -> myRobots.current<MyRobot>()
+          ItsRobot::class -> itsRobots.current<ItsRobot>()
+          else -> throw IllegalStateException("Wrong robot type")
+        }
 
     operator fun get(x: Int, y: Int) = cells[y][x]
     operator fun get(pos: Position) = cells[pos.y][pos.x]
@@ -600,11 +637,10 @@ object Silver {
 
     val knownOres = oreManager.countOres()
     val knownSafeOres = oreManager.getSafeOres().count()
-    debug("Known ores: $knownOres")
     debug("Known safe ores: $knownSafeOres")
     when {
       radarManager.canAddRadar() && knownSafeOres < 10 -> objectives.add(EMERGENCY_SCOUT).also { debug("Need emergency scout") }
-      radarManager.canAddRadar() && knownSafeOres < 20 -> objectives.add(SCOUT).also { debug("Need scout") }
+      radarManager.canAddRadar() && knownSafeOres < 30 -> objectives.add(SCOUT).also { debug("Need scout") }
     }
 
     repeat(5) { objectives.add(ARBITRARY_COLLECT) }
@@ -823,17 +859,19 @@ object Silver {
     }
   }
 
+  private var timingInfo = true
+
   fun <R> Any.timeNullable(timerName: String, action: () -> R): R? where R : Any? {
     var t: R? = null
     val duration = measureNanoTime { t = action() }
-    debug("$timerName took ${duration / 1_000_000} ms")
+    if (timingInfo) debug("$timerName took ${duration / 1_000_000} ms")
     return t
   }
 
   fun <R> Any.time(timerName: String, action: () -> R): R where R : Any {
     var t: R? = null
     val duration = measureNanoTime { t = action() }
-    debug("$timerName took ${duration / 1_000_000} ms")
+    if (timingInfo) debug("$timerName took ${duration / 1_000_000} ms")
     return t!!
   }
 
@@ -874,3 +912,6 @@ object Silver {
 // TODO: if dug once on ore and didn't come back: smells like a trap
 // TODO: when doing random digging, stay ~2 steps from the trap
 // TODO: when
+
+// 88 71 100 94 93
+// 85 72  92 87 90
