@@ -499,16 +499,17 @@ object Silver {
     val radarAvailable
       get() = internalCooldown == 0
 
+    // TODO side radar scanning when there is a lot of ore. Shows greater mining potential
     private val radars = listOf(
-        Position(4, 3),
-        Position(4, 11),
-        Position(9, 7),
-        Position(14, 3),
-        Position(14, 11),
-        Position(19, 7),
-        Position(24, 3),
-        Position(24, 11),
-        Position(28, 7)
+        Position(6, 3),
+        Position(6, 11),
+        Position(11, 7),
+        Position(16, 3),
+        Position(16, 11),
+        Position(21, 7),
+        Position(26, 3),
+        Position(26, 11),
+        Position(29, 7)
     )
 
     // TODO: avoid gaps in radar coverage
