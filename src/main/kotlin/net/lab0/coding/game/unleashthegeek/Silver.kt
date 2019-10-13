@@ -222,8 +222,16 @@ object Silver {
     }
 
     override fun selection(index: Int, robots: List<MyRobot>): MyRobot? {
-      return robots.filter { it.strategy == EagerDigger }.drop(index).firstOrNull()
-          ?: robots.firstOrNull()
+      val safeOres = oreManager.getSafeOres().toList()
+      return when {
+        // if there are few mineral, prioritize robots by steps to those ores
+        // TODO: try all the permutations and take the cheapest one by step count
+        safeOres.count() <= robots.count() -> {
+          robots.permutations().minBy { it.zip(safeOres).sumBy { it.first.pos.stepDistance(it.second) } }!!.first()
+        }
+        else -> robots.filter { it.strategy == EagerDigger }.drop(index).firstOrNull()
+            ?: robots.firstOrNull()
+      }
     }
 
     override fun toString() = "E"
@@ -273,6 +281,7 @@ object Silver {
 
     operator fun get(pos: Position) = current[pos.y][pos.x]
 
+    // OPTIM: could be cached
     fun getKnownOres(): Sequence<Position> = sequence {
       val currentOre = current
       yAxis.flatMap { y ->
@@ -480,7 +489,7 @@ object Silver {
     private var internalCooldown: Int = 0
 
     fun updateCooldown(cooldown: Int) {
-      internalCooldown = cooldown.also { debug("Radar cooldown = $cooldown") }
+      internalCooldown = cooldown
     }
 
     fun request() {
@@ -881,6 +890,38 @@ object Silver {
   val Int.asSteps
     get() = this / MAX_DISTANCE_PER_STEP
 
+  /**
+   * Generates all the permutations for the given list
+   *
+   * From `https://en.wikipedia.org/wiki/Heap%27s_algorithm`
+   */
+  fun <T> List<T>.permutations(): Sequence<List<T>> = sequence {
+    val copy = this@permutations.toMutableList()
+    val fakeStack = IntArray(copy.size) { 0 }
+
+    /**
+     * Swaps a and b and returns the list itself
+     */
+    fun <E> MutableList<E>.swap(a: Int, b: Int): MutableList<E> =
+        this.also { this[a] = this[b].also { this[b] = this[a] } }
+
+    yield(copy)
+
+    var stackPointer = 0
+    while (stackPointer < copy.size) {
+      if (fakeStack[stackPointer] < stackPointer) {
+        yield(
+            if (stackPointer % 2 == 0) copy.swap(0, stackPointer)
+            else copy.swap(fakeStack[stackPointer], stackPointer)
+        )
+        fakeStack[stackPointer] += 1
+        stackPointer = 0
+      } else {
+        fakeStack[stackPointer] = 0
+        stackPointer++
+      }
+    }
+  }
 }
 
 
