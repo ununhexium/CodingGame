@@ -298,7 +298,7 @@ object Silver {
 
     fun countOres() = current.sumBy { it.sumBy { if (it <= 0) 0 else it } }
 
-    fun getSafeOres() = getKnownOres().filter { trapManager[it] == 0 }
+    fun getSafeOres() = getKnownOres().filter { trapManager[it] == 0 || !holeManager[it] }
 
     fun getUnsafeOres() = getKnownOres().sortedBy { trapManager[it] }
 
