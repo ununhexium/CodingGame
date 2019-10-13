@@ -203,11 +203,12 @@ object Silver {
 
   object EagerDigger : Strategy {
     override fun nextOrder(robot: MyRobot) = with(robot) {
+      trapManager.kaboomPotential(robot)?.let { return Dig(it) }
       if (load == ORE) {
         Move(toBase)
       } else {
-        if (atBase && radarManager.shouldTakeFakeTrap()) {
-          RequestRadar()
+        if (atBase && trapManager.shouldTakeTrap()) {
+          RequestTrap()
         } else when (val lo = internalLastOrder) {
           is Dig -> when {
             trapManager[lo.pos] > 0 -> oreManager.getNextTarget(robot)
@@ -227,7 +228,7 @@ object Silver {
       robots.forEach { robot ->
         ores.forEach { ore ->
           val thisDistance = robot.pos.stepDistance(ore)
-          if(thisDistance < minDistance) {
+          if (thisDistance < minDistance) {
             minDistance = thisDistance
             bestRobot = robot
           }
@@ -457,7 +458,7 @@ object Silver {
 
     var lastTrapTime = 0
     fun shouldTakeTrap(): Boolean {
-      val should = radarManager.radarAvailable && (clock.step - lastTrapTime) > 10
+      val should = radarManager.radarAvailable && (clock.step - lastTrapTime) > 15
       if (should) lastTrapTime = clock.step
       return should
     }
@@ -470,17 +471,6 @@ object Silver {
         val itsRobots = arena.current<ItsRobot>().count { it.pos == trap }
         itsRobots - myRobots > 0
       }.firstOrNull()    // TODO check for chain reactions
-      fun kaboomPotential(robot: MyRobot): Position? {
-        // hardcore kamikaze
-        return robot.pos.inRadius(1).filter { this@TrapManager[it] > 4 }.filter { trap ->
-          val myRobots = arena.current<MyRobot>().count { it.pos == trap }
-          val itsRobots = arena.current<ItsRobot>().count { it.pos == trap }
-          itsRobots - myRobots > 0
-        }.firstOrNull()
-
-        // TODO: suicidal tendencies: if has potential to trigger explosion favourably AND there is ore at that place
-      }
-
 
       // TODO: suicidal tendencies: if has potential to trigger explosion favourably AND there is ore at that place
     }
@@ -653,7 +643,7 @@ object Silver {
     val robots = arena.myRobots.current<MyRobot>().toMutableList()
 
     if (robots.size == 1) {
-      robots.first().internalLastOrder = Move(Position(0,0))
+      robots.first().internalLastOrder = Move(Position(0, 0))
     }
 
     // scout
@@ -662,14 +652,14 @@ object Silver {
     when {
       radarManager.canAddRadar() && knownSafeOres < 10 -> {
         val robot = Scout.selection(0, robots)
-        if(robot!=null){
+        if (robot != null) {
           robot.internalLastOrder = Scout.nextOrder(robot)
           robots.remove(robot)
         }
       }
       radarManager.canAddRadar() && knownSafeOres < 30 -> {
         val robot = Scout.selection(1, robots)
-        if(robot!=null){
+        if (robot != null) {
           robot.internalLastOrder = Scout.nextOrder(robot)
           robots.remove(robot)
         }
