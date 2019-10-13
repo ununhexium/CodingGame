@@ -280,13 +280,15 @@ object Silver {
 
     operator fun get(pos: Position) = current[pos.y][pos.x]
 
-    // OPTIM: could be cached
-    fun getKnownOres(): Sequence<Position> = sequence {
-      val currentOre = current
-      yAxis.flatMap { y ->
-        xAxis.flatMap { x ->
-          (1..currentOre[y][x]).map {
-            yield(Position(x, y))
+    val knownOreCache = mutableMapOf<Int, List<Position>>()
+    fun getKnownOres(): List<Position> {
+      return knownOreCache.computeIfAbsent(clock.step){
+        val currentOre = current
+        yAxis.flatMap { y ->
+          xAxis.flatMap { x ->
+            (1..currentOre[y][x]).map {
+              Position(x, y)
+            }
           }
         }
       }
