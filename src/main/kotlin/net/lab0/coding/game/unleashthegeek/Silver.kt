@@ -302,18 +302,6 @@ object Silver {
 
     fun getUnsafeOres() = getKnownOres().sortedBy { trapManager[it] }
 
-    // TODO: in late game, could commit suicide to free an ore to others
-//          val unsafeOre = oreManager.getUnsafeOres()
-    // don't sacrifice the last robot
-//          if (unsafeOre.isNotEmpty() && clock.step > 150 && arena.myRobots.current<MyRobot>().size > 1) {
-//            val unsafeDig = unsafeOre.filter { trapManager[it] < 5 }.minBy { it.distance(pos) }
-//            debug("Suicide digging to $unsafeDig")
-//            if (unsafeDig != null) {
-//              Dig(unsafeDig)
-//            } else {
-//              Wait()
-//            }
-
     fun shouldNotDig(x: Int, y: Int): Boolean {
       val oreValue = oreManager.lastKnownValue(x, y)
 
@@ -466,20 +454,24 @@ object Silver {
     // TODO check for chain reactions
     fun kaboomPotential(robot: MyRobot): Position? {
       // hardcore kamikaze
-      return robot.pos.inRadius(1).filter { this@TrapManager[it] > 4 }.filter { trap ->
-        val myRobots = arena.current<MyRobot>().count { it.pos == trap }
-        val itsRobots = arena.current<ItsRobot>().count { it.pos == trap }
-        itsRobots - myRobots > 0
-      }.firstOrNull()    // TODO check for chain reactions
+      val myRobots = arena.current<MyRobot>()
+      val itsRobots = arena.current<ItsRobot>()
 
-      // TODO: suicidal tendencies: if has potential to trigger explosion favourably AND there is ore at that place
+      return robot.pos.inRadius(1).filter { this@TrapManager[it] > 4 }.filter { trap ->
+        val blastArea = trap.inRadius(1)
+        val myRobotsCount = myRobots.count { it.pos in blastArea }
+        val itsRobotsCount = itsRobots.count { it.pos in blastArea }
+        itsRobotsCount - myRobotsCount > 0
+      }.firstOrNull()
+
           ?: robot.pos.inRadius(1)
               .filter { this@TrapManager[it] > 1 }
               .filter { oreManager[it] > 0 }
               .filter { trap ->
-                val myRobots = arena.current<MyRobot>().count { it.pos == trap }
-                val itsRobots = arena.current<ItsRobot>().count { it.pos == trap }
-                itsRobots - myRobots > 0
+                val blastArea = trap.inRadius(1)
+                val myRobotsCount = myRobots.count { it.pos in blastArea }
+                val itsRobotsCount = itsRobots.count { it.pos in blastArea }
+                itsRobotsCount - myRobotsCount > 0
               }.firstOrNull()
     }
   }
