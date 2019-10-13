@@ -6,7 +6,7 @@ import java.lang.IllegalArgumentException
 import kotlin.math.abs
 import kotlin.system.measureNanoTime
 
-fun main(vararg args: String) {
+fun main() {
   Silver.solve()
 }
 
@@ -254,8 +254,10 @@ object Silver {
       }
     }
 
-    inline fun <reified T> current() where T : Robot<T> =
-        this.robots.entries.filter { it.value.size == clock.step }.map { it.value.last() as T }
+    inline fun <reified T> current() where T : Robot<T> = atStep<T>(clock.step)
+
+    inline fun <reified T> atStep(step: Int) where T : Robot<T> =
+        this.robots.entries.filter { it.value.size == step }.map { it.value.last() as T }
   }
 
   // MANAGEMENT
@@ -375,13 +377,41 @@ object Silver {
     val history: Array<Array<BooleanArray>> =
         Array(MAX_TURNS) { Array(HEIGHT) { BooleanArray(WIDTH) { false } } }
 
+    val dugByMe: Array<Array<BooleanArray>> =
+        Array(MAX_TURNS) { Array(HEIGHT) { BooleanArray(WIDTH) { false } } }
+
     val densityHistory: Array<Array<IntArray>> =
         Array(MAX_TURNS) { Array(HEIGHT) { IntArray(WIDTH) { 0 } } }
 
     private val computedDensity = Array(MAX_TURNS) { false }
 
+    fun stepUpdate() {
+      yAxis.forEach { y ->
+        xAxisNoBase.forEach { x ->
+          dugByMe[clock.step][y][x] = dugByMe[clock.step - 1][y][x]
+        }
+      }
+    }
+
+    fun postStepUpdate() {
+      // compute who dug holes
+      yAxis.forEach { y ->
+        xAxisNoBase.forEach { x ->
+          if (dugByMe[clock.step][y][x] != dugByMe[clock.step - 1][y][x]) {
+            val couldBeMe = arena.current<MyRobot>().any { it.pos in Position(x, y).inRadius(1) }
+            val couldBeIt = arena.current<ItsRobot>().any { it.pos in Position(x, y).inRadius(1) }
+            if (couldBeMe && !couldBeIt) dugByMe[clock.step][y][x] = true
+          }
+        }
+      }
+    }
+
     fun update(x: Int, y: Int, amount: Boolean) {
       history[clock.step][y][x] = amount
+    }
+
+    fun updateAnotherDig(x: Int, y: Int) {
+      dugByMe[clock.step][y][x] = false
     }
 
     operator fun get(pos: Position) = history[clock.step][pos.y][pos.x]
@@ -563,6 +593,13 @@ object Silver {
           else -> throw IllegalStateException("Wrong robot type")
         }
 
+    inline fun <reified T> atStep(step: Int) where T : Robot<T> =
+        when (T::class) {
+          MyRobot::class -> myRobots.atStep<MyRobot>(step)
+          ItsRobot::class -> itsRobots.atStep<ItsRobot>(step)
+          else -> throw IllegalStateException("Wrong robot type")
+        }
+
     operator fun get(x: Int, y: Int) = cells[y][x]
     operator fun get(pos: Position) = cells[pos.y][pos.x]
 
@@ -588,6 +625,7 @@ object Silver {
     clock.tick()
     trapManager.stepUpdate()
     oreManager.stepUpdate()
+    holeManager.stepUpdate()
 
     // Amount of ore delivered
     scores.mine = input.nextInt()
@@ -637,6 +675,8 @@ object Silver {
         else -> TODO("How to scan type id $typeId")
       }
     }
+
+    holeManager.postStepUpdate()
   }
 
   private fun assignActions() {
@@ -873,7 +913,7 @@ object Silver {
 
 // HIGH PRIO
 
-// TODO: coordinate mining operations
+// Radar flood fill without gaps
 
 // TODO: scout areas close to position
 // TODO: when getting back to the base to get a new radar, try to get closer to the next place where it has to be put
