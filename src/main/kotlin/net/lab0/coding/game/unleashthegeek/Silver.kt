@@ -30,7 +30,6 @@ object Silver {
   val oreManager = OreManager(clock, trapManager)
   val radarManager = RadarManager(clock, trapManager)
   val scores = Scores(0, 0)
-  val myPowerUps = PowerUps()
 
   /**
    * Deliver more ore to hq (left side of the map) than your opponent. Use radars to find ore but beware of traps!
@@ -74,11 +73,14 @@ object Silver {
      * Pops the previous order if it was reached
      */
 
-    val atBase get() = pos.x == 0
+    val atBase
+      get() = pos.x == 0
 
-    val toBase get() = pos.copy(x = 0)
+    val toBase
+      get() = pos.copy(x = 0)
 
-    val action get() = internalLastOrder
+    val action
+      get() = internalLastOrder
 
     override fun copyAndUpdate(update: MyRobot) = this.copy(pos = update.pos, load = update.load)
 
@@ -87,7 +89,7 @@ object Silver {
       return internalLastOrder
     }
 
-    private fun getClosestCells() = arena.cells.flatten().sortedBy { it.pos.distance(this.pos) }
+    private fun getClosestCells() = arena.cells.flatten().sortedBy { it.pos.stepDistance(this.pos) }
 
     fun Sequence<Position>.notTargeted(): Sequence<Position> {
       val targetedPositions = arena.myRobots.current<MyRobot>().map { robot ->
@@ -112,7 +114,8 @@ object Silver {
     override fun copyAndUpdate(update: ItsRobot) = this.copy(
         pos = update.pos,
         load = when {
-          pos == update.pos && pos.x == 0 -> DANGER.also { debug("Suspect load from $id at $pos") }
+          // clock step > 2 -> assuming no player will start with a mine
+          clock.step > 2 && pos == update.pos && pos.x == 0 -> DANGER.also { debug("Suspect load from $id at $pos") }
           /**
            * Hoping for the best and assuming that it mine and didn't trick me into thinking I mined
            */
@@ -157,13 +160,30 @@ object Silver {
 
   object Scout : Strategy {
     override fun nextOrder(robot: MyRobot): Action = with(robot) {
+      val nextRadarPosition = radarManager.getNextRadarPosition()
       when (load) {
-        RADAR -> radarManager.getNextRadarPosition()?.let { Dig(it) }
-            ?: internalLastOrder.also { debug("No radar spot available: continue to $it") }
-        ORE -> Move(toBase)
+        RADAR -> {
+          nextRadarPosition?.let { Dig(it).also { debug("0") } }
+              ?: internalLastOrder.also { debug("No radar spot available: continue to $it") }.also { debug("1") }
+        }
+        ORE -> if (nextRadarPosition != null) Move(toBase.copy(y = nextRadarPosition.y)).also { debug("2") } else Move(
+            toBase
+        ).also { debug("3") }
         else -> {
-          val oreNearby = oreManager.getSafeOres().firstOrNull { it.distance(robot.pos) < 4 }
-          if (oreNearby != null) Dig(oreNearby) else RequestRadar()
+          // look for something on the way back
+          // TODO: this should actually be computed in steps cost instead of rough distance
+          val oreNearby = oreManager.getSafeOres().filter { it.x < pos.x }.sortedByDescending { it.y }
+              .firstOrNull { it.stepDistance(robot.pos) < 1 }
+          debug("Radar available = ${radarManager.radarAvailable}")
+          when {
+            atBase && !radarManager.radarAvailable && nextRadarPosition != null -> Move(nextRadarPosition.copy(x = 0)).also {
+              debug(
+                  "4"
+              )
+            }
+            oreNearby != null -> Dig(oreNearby).also { debug("5") }
+            else -> RequestRadar().also { debug("6") }
+          }
         }
       }
     }
@@ -176,12 +196,12 @@ object Silver {
               ?: robots.firstOrNull { it.load == RADAR }
               // closest to next radar location
               ?: robots.filter { (it.atBase) }
-                  .minBy { it.pos.distance(radarManager.getNextRadarPosition() ?: Position(0,0)) }
+                  .minBy { it.pos.stepDistance(radarManager.getNextRadarPosition() ?: Position(0, 0)) }
               ?: robots.firstOrNull { it.atBase } // otherwise select a robot at base
               ?: robots.minBy { it.pos.x } // closest to base
         }
         // otherwise select the closest from base
-        else -> robots.firstOrNull { myPowerUps.radar.available && it.atBase }
+        else -> robots.firstOrNull { radarManager.radarAvailable && it.atBase }
       }
     }
 
@@ -191,15 +211,18 @@ object Silver {
 
   object EagerDigger : Strategy {
     override fun nextOrder(robot: MyRobot) = with(robot) {
+      trapManager.kamikazePotential()?.let { return Dig(it) }
+
       if (load == ORE) {
         Move(toBase)
       } else {
-        if (atBase && trapManager.shouldTakeTrap()) {
-          RequestTrap()
+        if (atBase && radarManager.shouldTakeFakeTrap()) {
+          RequestRadar()
         } else when (val lo = internalLastOrder) {
           is Dig -> when {
-            oreManager[lo.pos] <= 0 -> oreManager.getNextTarget(robot)
             trapManager[lo.pos] > 0 -> oreManager.getNextTarget(robot)
+            oreManager[lo.pos] == 0 -> oreManager.getNextTarget(robot)
+            oreManager[lo.pos] == -1 && holeManager[lo.pos] -> oreManager.getNextTarget(robot)
             else -> lo
           }
           else -> oreManager.getNextTarget(robot)
@@ -254,7 +277,8 @@ object Silver {
     fun lastKnownValue(x: Int, y: Int): Int =
         history.lastOrNull { it[y][x] != -1 }?.get(y)?.get(x) ?: -1
 
-    val current get() = history[clock.step]
+    val current
+      get() = history[clock.step]
 
     operator fun get(pos: Position) = current[pos.y][pos.x]
 
@@ -297,20 +321,30 @@ object Silver {
     }
 
     fun getNextTarget(robot: MyRobot): Action {
+      if (clock.step == 1) {
+        val order = arena.myRobots.current<MyRobot>().sortedBy { it.pos.y }.indexOfFirst { it.id == robot.id }
+        return if (order % 2 == 0) Move(robot.pos.copy(x = 3)) else Move(robot.pos.copy(x = 7))
+      }
+
       val currentDigTargets = arena.myRobots.current<MyRobot>()
           .mapNotNull { it.action as? Dig }
           .map { it.pos }
           .toMutableList()
 
-      val directOre = getSafeOres().filterNot { currentDigTargets.remove(it) }.sortedBy { it.distance(robot.pos) }
+      val directOre = getSafeOres()
+          .filterNot { currentDigTargets.remove(it) }
+          // sorted by round trip (1 step)
+          .sortedBy { it.stepDistance(robot.pos) + it.stepDistance(it.copy(x = 0)) + 1 /*dig*/ }
           .firstOrNull()
 
       // aim for radar when it will be planted
-      val nextRadarLocation = arena.myRobots.current<MyRobot>()
-          .filter { it.strategy == Scout }
-          .mapNotNull { (it.action as? Dig)?.pos }
-          .firstOrNull()
-          ?: radarManager.getNextRadarPosition()
+      val nextRadarLocation = if (clock.step > 10) {
+        arena.myRobots.current<MyRobot>()
+            .filter { it.strategy == Scout }
+            .mapNotNull { (it.action as? Dig)?.pos }
+            .firstOrNull()
+            ?: radarManager.getNextRadarPosition()
+      } else null
 
       val searchingArea = nextRadarLocation ?: robot.pos
 
@@ -352,9 +386,22 @@ object Silver {
     val history: Array<Array<IntArray>> =
         Array(MAX_TURNS) { Array(HEIGHT) { IntArray(WIDTH) { 0 } } }
 
-    val current get() = history[clock.step]
+    val current
+      get() = history[clock.step]
 
     operator fun get(pos: Position) = history[clock.step][pos.y][pos.x]
+
+    private var internalCooldown: Int = 0
+
+    fun updateCooldown(cooldown: Int) {
+      internalCooldown = cooldown
+    }
+
+    fun request() {
+      internalCooldown = 99
+    }
+
+    val available = internalCooldown == 0
 
     fun updateDanger(pos: Position) {
       pos.inRadius(1).forEach {
@@ -376,9 +423,15 @@ object Silver {
 
     var lastTrapTime = 0
     fun shouldTakeTrap(): Boolean {
-      val should = myPowerUps.trap.available && (clock.step - lastTrapTime) > 10
+      val should = radarManager.radarAvailable && (clock.step - lastTrapTime) > 10
       if (should) lastTrapTime = clock.step
       return should
+    }
+
+    // TODO check for chain reactions
+    fun kamikazePotential(robot: MyRobot): Position {
+      // hard kamikaze
+      val surroundingTraps = robot.pos.inRadius(1).filter { this@TrapManager[it] >  }
     }
   }
 
@@ -386,13 +439,27 @@ object Silver {
     val history: Array<Array<BooleanArray>> =
         Array(MAX_TURNS) { Array(HEIGHT) { BooleanArray(WIDTH) { false } } }
 
-    val current get() = history[clock.step]
+    val current
+      get() = history[clock.step]
 
     operator fun get(pos: Position) = history[clock.step][pos.y][pos.x]
 
     fun update(x: Int, y: Int) {
       history[clock.step][y][x] = true
     }
+
+    private var internalCooldown: Int = 0
+
+    fun updateCooldown(cooldown: Int) {
+      internalCooldown = cooldown.also { debug("Radar cooldown = $cooldown") }
+    }
+
+    fun request() {
+      internalCooldown = 99
+    }
+
+    val radarAvailable
+      get() = internalCooldown == 0
 
     private val radars = listOf(
         Position(4, 3),
@@ -424,6 +491,13 @@ object Silver {
 
     // TODO: LOW may need to adjust this range
     fun Position.getAlternativePositions() = this.inRadius(2)
+
+    var lastFakeTrapTime = 0
+    fun shouldTakeFakeTrap(): Boolean {
+      val should = radarAvailable && (clock.step - lastFakeTrapTime) > 15
+      if (should) lastFakeTrapTime = clock.step
+      return should
+    }
   }
 
   class Arena {
@@ -432,7 +506,8 @@ object Silver {
         yAxis.map { y -> xAxis.map { x -> Cell(Position(x, y)) } }
     )
 
-    val cells get() = cellsHistory.last()
+    val cells
+      get() = cellsHistory.last()
 
     // moving entities as map<id,history>
     val myRobots = RobotTracker<MyRobot>()
@@ -452,25 +527,6 @@ object Silver {
   }
 
   data class Scores(var mine: Int, var its: Int)
-
-  class Cooldown {
-    private var internalCooldown: Int = 0
-
-    fun updateCooldown(cooldown: Int) {
-      internalCooldown = cooldown
-    }
-
-    fun request() {
-      internalCooldown = 99
-    }
-
-    val available = internalCooldown == 0
-  }
-
-  class PowerUps {
-    val radar = Cooldown()
-    val trap = Cooldown()
-  }
 
   @Suppress("UNUSED_VARIABLE")
   private fun initParser(input: Scanner) {
@@ -504,8 +560,8 @@ object Silver {
     }
 
     val entityCount = input.nextInt() // number of entities visible to you
-    myPowerUps.radar.updateCooldown(input.nextInt())  // turns left until a new radar can be requested
-    myPowerUps.trap.updateCooldown(input.nextInt()) // turns left until a new trap can be requested
+    radarManager.updateCooldown(input.nextInt())  // turns left until a new radar can be requested
+    trapManager.updateCooldown(input.nextInt()) // turns left until a new trap can be requested
 
     (0 until entityCount).forEach { _ ->
       val id = input.nextInt() // unique id of the entity
@@ -655,7 +711,7 @@ object Silver {
 
     class RequestRadar : Action() {
       init {
-        myPowerUps.radar.request()
+        radarManager.request()
       }
 
       override val order = "REQUEST RADAR"
@@ -664,7 +720,7 @@ object Silver {
 
     class RequestTrap : Action() {
       init {
-        myPowerUps.trap.request()
+        trapManager.request()
       }
 
       override val order = "REQUEST TRAP"
@@ -781,7 +837,11 @@ object Silver {
     return t!!
   }
 
-  val Int.steps get() = this * MAX_DISTANCE_PER_STEP
+  val Int.steps
+    get() = this * MAX_DISTANCE_PER_STEP
+
+  val Int.asSteps
+    get() = this / MAX_DISTANCE_PER_STEP
 
 }
 
