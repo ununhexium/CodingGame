@@ -212,14 +212,14 @@ object Silver {
         if (atBase && trapManager.shouldTakeTrap()) {
           RequestTrap()
         } else when (val lo = internalLastOrder) {
-          is Move -> if (robot.pos != lo.pos) lo else oreManager.getNextTarget(robot)
+          is Move -> if (robot.pos != lo.pos) lo else oreManager.getNextDigTarget(robot)
           is Dig -> when {
-            trapManager[lo.pos] > 0 -> oreManager.getNextTarget(robot)
-            oreManager[lo.pos] == 0 -> oreManager.getNextTarget(robot)
-            oreManager[lo.pos] == -1 && holeManager[lo.pos] -> oreManager.getNextTarget(robot)
+            trapManager[lo.pos] > 0 -> oreManager.getNextDigTarget(robot)
+            oreManager[lo.pos] == 0 -> oreManager.getNextDigTarget(robot)
+            oreManager[lo.pos] == -1 && holeManager[lo.pos] -> oreManager.getNextDigTarget(robot)
             else -> lo
           }
-          else -> oreManager.getNextTarget(robot)
+          else -> oreManager.getNextDigTarget(robot)
         }
       }
     }
@@ -314,7 +314,7 @@ object Silver {
       // TODO: should not dig if other robot are aiming at it
     }
 
-    fun getNextTarget(robot: MyRobot): Action {
+    fun getNextDigTarget(robot: MyRobot): Action {
       if (clock.step == 1) {
         val order = arena.myRobots.current<MyRobot>().sortedBy { it.pos.y }.indexOfFirst { it.id == robot.id }
         return if (order % 2 == 0) Move(robot.pos.copy(x = 3)) else Move(robot.pos.copy(x = 7))
@@ -341,7 +341,8 @@ object Silver {
       } else null
 
       val searchingArea =
-          if (nextRadarLocation != null && robot.pos in nextRadarLocation.inRadius(4)) robot.pos else nextRadarLocation ?: robot.pos
+          if (nextRadarLocation != null && robot.pos in nextRadarLocation.inRadius(4)) robot.pos else nextRadarLocation
+              ?: robot.pos
 
       // if nothing around current position, look for large mineable space
       val bestTarget =
@@ -354,6 +355,7 @@ object Silver {
                   .inRadius(1.steps)
                   .toList()
                   .shuffled()
+                  .filter { holeManager.holeDensityAt(it) < 50 }
                   .firstOrNull { holeManager.uncoveredPositionsAround(it) > 4 }
 
               ?: searchingArea
@@ -376,6 +378,11 @@ object Silver {
     val history: Array<Array<BooleanArray>> =
         Array(MAX_TURNS) { Array(HEIGHT) { BooleanArray(WIDTH) { false } } }
 
+    val densityHistory: Array<Array<IntArray>> =
+        Array(MAX_TURNS) { Array(HEIGHT) { IntArray(WIDTH) { 0 } } }
+
+    private val computedDensity = Array(MAX_TURNS) { false }
+
     fun update(x: Int, y: Int, amount: Boolean) {
       history[clock.step][y][x] = amount
     }
@@ -385,6 +392,20 @@ object Silver {
     fun lastKnownValue(x: Int, y: Int): Boolean = history[clock.step][y][x]
 
     fun uncoveredPositionsAround(pos: Position) = pos.inRadius(1).sumBy { if (this@HoleManager[it]) 0 else 1 }
+
+    fun holeDensityAt(it: Position, radius: Int = 2): Int {
+      if (!computedDensity[clock.step]) {
+        val current = densityHistory[clock.step]
+        yAxis.forEach { y ->
+          xAxisNoBase.forEach { x ->
+            val area = Position(x, y).inRadius(radius).toList()
+            current[y][x] = area.count { this@HoleManager[it] } * 100 / area.count()
+          }
+        }
+        computedDensity[clock.step] = true
+      }
+      return densityHistory[clock.step][it.y][it.x]
+    }
   }
 
   class TrapManager(private val clock: Clock) {
@@ -474,10 +495,10 @@ object Silver {
 
     private val radars = listOf(
         Position(4, 3),
-        Position(4, 11),
         Position(9, 7),
-        Position(14, 3),
+        Position(4, 11),
         Position(14, 11),
+        Position(14, 3),
         Position(19, 7),
         Position(24, 3),
         Position(24, 11),
