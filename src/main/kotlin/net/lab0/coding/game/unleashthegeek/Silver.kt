@@ -114,8 +114,7 @@ object Silver {
     override fun copyAndUpdate(update: ItsRobot) = this.copy(
         pos = update.pos,
         load = when {
-          // clock step > 2 -> assuming no player will start with a mine
-          clock.step > 2 && pos == update.pos && pos.x == 0 -> DANGER.also { debug("Suspect load from $id at $pos") }
+          pos == update.pos && pos.x == 0 -> DANGER.also { debug("Suspect load from $id at $pos") }
           /**
            * Hoping for the best and assuming that it mine and didn't trick me into thinking I mined
            */
