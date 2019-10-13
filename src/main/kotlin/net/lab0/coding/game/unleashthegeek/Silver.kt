@@ -193,7 +193,7 @@ object Silver {
               ?: robots.firstOrNull { it.atBase } // otherwise select a robot at base
               ?: robots.minBy { it.pos.x } // closest to base
         }
-        // otherwise select the closest from base
+        // otherwise select one at base
         else -> robots.firstOrNull { radarManager.radarAvailable && it.atBase }
       }
     }
@@ -222,16 +222,19 @@ object Silver {
     }
 
     override fun selection(index: Int, robots: List<MyRobot>): MyRobot? {
-      val safeOres = oreManager.getSafeOres().toList()
-      return when {
-        // if there are few mineral, prioritize robots by steps to those ores
-        // TODO: try all the permutations and take the cheapest one by step count
-        safeOres.count() <= robots.count() -> {
-          robots.permutations().minBy { it.zip(safeOres).sumBy { it.first.pos.stepDistance(it.second) } }!!.first()
+      val ores = oreManager.getSafeOres()
+      var minDistance = Int.MAX_VALUE
+      var bestRobot = robots.first()
+      robots.forEach { robot ->
+        ores.forEach { ore ->
+          val thisDistance = robot.pos.stepDistance(ore)
+          if(thisDistance < minDistance) {
+            minDistance = thisDistance
+            bestRobot = robot
+          }
         }
-        else -> robots.filter { it.strategy == EagerDigger }.drop(index).firstOrNull()
-            ?: robots.firstOrNull()
       }
+      return bestRobot
     }
 
     override fun toString() = "E"
@@ -467,7 +470,18 @@ object Silver {
         val myRobots = arena.current<MyRobot>().count { it.pos == trap }
         val itsRobots = arena.current<ItsRobot>().count { it.pos == trap }
         itsRobots - myRobots > 0
-      }.firstOrNull()
+      }.firstOrNull()    // TODO check for chain reactions
+      fun kaboomPotential(robot: MyRobot): Position? {
+        // hardcore kamikaze
+        return robot.pos.inRadius(1).filter { this@TrapManager[it] > 4 }.filter { trap ->
+          val myRobots = arena.current<MyRobot>().count { it.pos == trap }
+          val itsRobots = arena.current<ItsRobot>().count { it.pos == trap }
+          itsRobots - myRobots > 0
+        }.firstOrNull()
+
+        // TODO: suicidal tendencies: if has potential to trigger explosion favourably AND there is ore at that place
+      }
+
 
       // TODO: suicidal tendencies: if has potential to trigger explosion favourably AND there is ore at that place
     }
@@ -637,94 +651,36 @@ object Silver {
   }
 
   private fun assignActions() {
-    val objectives = mutableListOf<Objective>()
-
     val robots = arena.myRobots.current<MyRobot>().toMutableList()
 
     if (robots.size == 1) {
-      objectives.add(STAY_AWAY)
+      robots.first().internalLastOrder = Move(Position(0,0))
     }
 
-    val knownOres = oreManager.countOres()
+    // scout
     val knownSafeOres = oreManager.getSafeOres().count()
     debug("Known safe ores: $knownSafeOres")
     when {
-      radarManager.canAddRadar() && knownSafeOres < 10 -> objectives.add(EMERGENCY_SCOUT).also { debug("Need emergency scout") }
-      radarManager.canAddRadar() && knownSafeOres < 30 -> objectives.add(SCOUT).also { debug("Need scout") }
-    }
-
-    repeat(5) { objectives.add(ARBITRARY_COLLECT) }
-
-    objectives.forEachIndexed { idx, objective ->
-      if (robots.isNotEmpty()) {
-        when (objective) {
-          STAY_AWAY ->
-            robots.assign(
-                { it.firstOrNull() },
-                {
-                  yAxis.forEach a@{ y ->
-                    xAxis.forEach { x ->
-                      if (trapManager.current[y][x] == 0) {
-                        it.internalLastOrder = Move(Position(x, y))
-                        return@a
-                      }
-                    }
-                  }
-                },
-                {
-                  debug("Didn't find any robot to stay away")
-                }
-            )
-
-          EMERGENCY_SCOUT -> robots.assign(
-              {
-                Scout.selection(idx, robots)
-              },
-              {
-                it.strategy = Scout
-              },
-              {
-                debug("Can't find any emergency scout")
-              }
-          )
-
-          SCOUT -> robots.assign(
-              {
-                Scout.selection(idx, robots)
-              },
-              {
-                it.strategy = Scout
-              },
-              {
-                debug("Can't find a normal scout")
-              }
-          )
-
-          COLLECT -> robots.assign(
-              {
-                EagerDigger.selection(idx, robots)
-              },
-              {
-                it.strategy = EagerDigger
-              },
-              {
-                debug("Didn't find any collector")
-              }
-          )
-
-          ARBITRARY_COLLECT -> robots.assign(
-              {
-                EagerDigger.selection(idx, robots)
-              },
-              {
-                it.strategy = EagerDigger
-              },
-              {
-                debug("Didn't find any collector for random digging")
-              }
-          )
+      radarManager.canAddRadar() && knownSafeOres < 10 -> {
+        val robot = Scout.selection(0, robots)
+        if(robot!=null){
+          robot.internalLastOrder = Scout.nextOrder(robot)
+          robots.remove(robot)
         }
       }
+      radarManager.canAddRadar() && knownSafeOres < 30 -> {
+        val robot = Scout.selection(1, robots)
+        if(robot!=null){
+          robot.internalLastOrder = Scout.nextOrder(robot)
+          robots.remove(robot)
+        }
+      }
+    }
+
+    // dig
+    val safeOres = oreManager.getSafeOres().toList()
+    robots.permutations().minBy { it.zip(safeOres).sumBy { it.first.pos.stepDistance(it.second) } }!!.forEach {
+      it.internalLastOrder = EagerDigger.nextOrder(it)
     }
   }
 
