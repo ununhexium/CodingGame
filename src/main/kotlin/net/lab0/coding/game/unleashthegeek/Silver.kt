@@ -473,6 +473,14 @@ object Silver {
       }.firstOrNull()    // TODO check for chain reactions
 
       // TODO: suicidal tendencies: if has potential to trigger explosion favourably AND there is ore at that place
+          ?: robot.pos.inRadius(1)
+              .filter { this@TrapManager[it] > 1 }
+              .filter { oreManager[it] > 0 }
+              .filter { trap ->
+                val myRobots = arena.current<MyRobot>().count { it.pos == trap }
+                val itsRobots = arena.current<ItsRobot>().count { it.pos == trap }
+                itsRobots - myRobots > 0
+              }.firstOrNull()
     }
   }
 
