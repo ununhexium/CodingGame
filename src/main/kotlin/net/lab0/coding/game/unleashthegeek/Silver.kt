@@ -2,6 +2,7 @@ import java.util.*
 import Silver.Action.*
 import Silver.Type.*
 import java.lang.IllegalArgumentException
+import kotlin.IllegalArgumentException
 import kotlin.math.abs
 import kotlin.system.measureNanoTime
 
@@ -58,6 +59,8 @@ object Silver {
 
   data class Clock(var step: Int = 0) {
     fun tick() = step++
+    val previousStep
+      get() = step - 1
   }
 
   interface Entity {
@@ -241,9 +244,9 @@ object Silver {
       }
     }
 
-    inline fun <reified T> current() where T : Robot<T> = atStep<T>(clock.step)
+    inline fun <reified T> current(): List<T> where T : Robot<T> = atStep<T>(clock.step)
 
-    inline fun <reified T> atStep(step: Int) where T : Robot<T> =
+    inline fun <reified T> atStep(step: Int): List<T> where T : Robot<T> =
         this.robots.entries.filter { it.value.size == step }.map { it.value.last() as T }
   }
 
@@ -282,7 +285,7 @@ object Silver {
 
     val knownOreCache = mutableMapOf<Int, List<Position>>()
     fun getKnownOres(): List<Position> {
-      return knownOreCache.computeIfAbsent(clock.step){
+      return knownOreCache.computeIfAbsent(clock.step) {
         val currentOre = current
         yAxis.flatMap { y ->
           xAxis.flatMap { x ->
@@ -384,12 +387,8 @@ object Silver {
     fun postStepUpdate() {
       // TODO: compute who dug holes and put stuff in there
       // compute who dug holes
-      forWorldNoBase { x, y ->
-        if (dugByMe[clock.step][y][x] != dugByMe[clock.step - 1][y][x]) {
-          val couldBeMe = arena.current<MyRobot>().any { it.pos in Position(x, y).inRadius(1) }
-          val couldBeIt = arena.current<ItsRobot>().any { it.pos in Position(x, y).inRadius(1) }
-          if (couldBeMe && !couldBeIt) dugByMe[clock.step][y][x] = true
-        }
+      arena.current<MyRobot>().forEach { robot ->
+        arena.previousState(robot)
       }
     }
 
@@ -562,9 +561,9 @@ object Silver {
     val myRobots = RobotManager<MyRobot>()
     val itsRobots = RobotManager<ItsRobot>()
 
-    inline fun <reified T> current() where T : Robot<T> = atStep<T>(clock.step)
+    inline fun <reified T> current(): List<T> where T : Robot<T> = atStep<T>(clock.step)
 
-    inline fun <reified T> atStep(step: Int) where T : Robot<T> =
+    inline fun <reified T> atStep(step: Int): List<T> where T : Robot<T> =
         when (T::class) {
           MyRobot::class -> myRobots.atStep<MyRobot>(step)
           ItsRobot::class -> itsRobots.atStep<ItsRobot>(step)
@@ -579,6 +578,13 @@ object Silver {
         else -> TODO("Nope")
       }
     }
+
+    inline fun <reified T> previousState(robot: T): T where T : Robot<T> =
+        when (T::class) {
+          MyRobot::class -> myRobots.atStep<T>(clock.previousStep)[robot.id]
+          ItsRobot::class -> itsRobots.atStep<T>(clock.previousStep)[robot.id]
+          else -> throw IllegalArgumentException("Nope wrong entity type here")
+        }
   }
 
   data class Scores(var mine: Int, var its: Int)
@@ -621,6 +627,7 @@ object Silver {
     radarManager.updateCooldown(input.nextInt())  // turns left until a new radar can be requested
     trapManager.updateCooldown(input.nextInt()) // turns left until a new trap can be requested
 
+    var endOfRobots = false
     (0 until entityCount).forEach { _ ->
       val id = input.nextInt() // unique id of the entity
       val typeId = input.nextInt() // 0 for your robot, 1 for other robot, 2 for radar, 3 for trap
@@ -635,6 +642,12 @@ object Silver {
         Position(0, 0)
       } else {
         Position(x, y)
+      }
+
+      // guessing all the robots come first
+      if (!endOfRobots && typeId.toType() in listOf(MINE, ITS)) {
+        endOfRobots = true
+        holeManager.postStepUpdate()
       }
 
       when (typeId.toType()) {
